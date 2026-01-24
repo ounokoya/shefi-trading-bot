@@ -1,0 +1,8 @@
+optuna>=4.0.0,<5
+PyYAML>=6.0
+numpy>=1.23
+pandas>=2.0
+pandas_ta>=0.3.14b0
+matplotlib>=3.8
+requests>=2.31
+binance-historical-data>=0.1.14

@@ -1,0 +1,55 @@
+base_backtest_config: configs/backtest_new_strategie_flip_example.yaml
+
+optuna:
+  study_name: new_strategie_flip_multi_2024
+  n_trials: 2000
+  sampler: tpe
+  seed: 42
+  log_level: info
+  show_progress_bar: true
+  load_if_exists: true
+  storage: ""  # empty => sqlite db created in output.out_dir
+
+output:
+  out_dir: data/processed/backtests/optuna_new_strategie_flip_multi
+
+fixed_period:
+  start: 2024-01-01
+  end: 2024-12-31
+
+universe:
+  symbols: [SOLUSDT, ETHUSDT]
+  intervals: [4h, 6h]
+  years: [2023, 2024, 2025]
+
+walk_forward:
+  mode: single_split
+  train_pct: 0.7
+
+constraints:
+  min_trades: 10
+
+search_space:
+  indicators:
+    dmi:
+      period: {suggest: int, low: 10, high: 28, step: 2}
+      adx_smoothing: {suggest: int, low: 5, high: 20, step: 1}
+    stoch:
+      k: {suggest: int, low: 8, high: 28, step: 2}
+      k_smooth: {suggest: int, low: 1, high: 5, step: 1}
+      d: {suggest: int, low: 2, high: 10, step: 1}
+    cci:
+      period: {suggest: int, low: 14, high: 120, step: 2}
+
+  pivots:
+    zone_pct: {suggest: float, low: 0.005, high: 0.02, step: 0.001}
+    merge_pct: {suggest: float, low: 0.005, high: 0.02, step: 0.001}
+
+  signals:
+    condition_window_bars: {suggest: int, low: 10, high: 80, step: 5}
+    enable_premature:
+      suggest: categorical
+      choices: [true, false]
+
+  backtest:
+    sl_pct: {suggest: float, low: 0.02, high: 0.10, step: 0.01}

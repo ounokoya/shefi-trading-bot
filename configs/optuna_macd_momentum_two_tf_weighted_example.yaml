@@ -1,0 +1,130 @@
+ # IMPORTANT UNITÉS:
+ # - Tous les champs finissant par "_pct" sont des RATIOS (pas des "% humains"). Exemple: 0.01 = 1%.
+ # - Les durées sont en secondes ("_s").
+ # - Les périodes d'indicateurs (MACD/CCI/Stoch) sont en nombre de bougies (bars) sur le timeframe concerné.
+ # - pnl / drawdowns sont des valeurs en "retours" (dimensionless). Ici on optimise une performance relative, pas des $.
+ # Config backtest de base (Bybit + indicateurs + agent + backtest). Optuna surcharge uniquement les champs dans search_space.
+base_backtest_config: configs/backtest_macd_momentum_two_tf_example.yaml
+
+optuna:
+   # Nom du study Optuna (sert aussi pour les fichiers de sortie)
+  study_name: macd_momentum_two_tf_weighted
+   # Sens d'optimisation du score unique (ici on maximise)
+  direction: maximize
+   # Nombre de trials Optuna
+  n_trials: 10000
+   # Sampler Optuna: "tpe" (Tree-structured Parzen Estimator) ou "random" etc.
+  sampler: tpe
+   # Graine aléatoire (reproductibilité)
+  seed: 42
+   # Niveau de logs ("debug"|"info"|"warning"|"error")
+  log_level: debug
+  show_progress_bar: true
+
+output:
+   # Dossier où seront écrits: optuna_trials.csv, optuna_summary.yaml, best_backtest_config.yaml, etc.
+  out_dir: data/processed/backtests/optuna_macd_momentum_two_tf_weighted
+
+constraints:
+   # Filtre de qualité: si un trial produit moins de trades que ça, il est pruné.
+  min_trades: 10
+
+score:
+   # Score = + w_pnl*(pnl/scale_pnl)
+   #         - w_equity_dd*(equity_dd/scale_equity_dd)
+   #         - w_trade_dd*(trade_dd/scale_trade_dd)
+   #         - w_duration_s_max*(duration_s_max/scale_duration_s_max)
+   #         + w_winrate*(winrate/scale_winrate)
+   #
+   # weights: importance relative (dimensionless)
+   # scales: normalisation (même unité que la métrique) pour rendre les termes comparables
+  weights:
+     # pnl: performance totale du backtest (summary.equity_end)
+    pnl: 5.0
+     # equity_dd: drawdown max de la courbe d'equity (summary.max_dd) -> on pénalise
+    equity_dd: 3.0
+     # trade_dd: pire drawdown sur un trade (summary.dd_max_trade) -> on pénalise
+    trade_dd: 2.0
+     # duration_s_max: durée max d'un trade en secondes (summary.duration_s_max) -> on pénalise
+    duration_s_max: 0.25
+     # winrate: taux de trades gagnants (0..1) -> on récompense
+    winrate: 1.0
+  scales:
+     # 1.0 => pas de normalisation sur pnl (souvent OK si pnl est déjà "raisonnable")
+    pnl: 1.0
+     # 0.20 ~ 20% (en ratio) : si equity_dd vaut 0.20 alors (equity_dd/scale)=1
+    equity_dd: 0.20
+     # 0.10 ~ 10% (en ratio) : idem pour le drawdown max trade
+    trade_dd: 0.10
+     # 3600s = 1h : si un trade dure 1h alors (dur/scale)=1
+    duration_s_max: 360000.0
+     # winrate dans [0..1], donc 1.0 est pratique
+    winrate: 1.0
+
+search_space:
+  # Les feuilles utilisent le format:
+  # {suggest: int|float|categorical, low: ..., high: ..., step: ...} ou {suggest: categorical, choices: [...]}
+  indicators:
+    exec_macd:
+      # MACD (timeframe exécution): périodes (bougies)
+      fast: {suggest: int, low: 6, high: 18, step: 3} # bars
+      slow: {suggest: int, low: 24, high: 60, step: 6} # bars
+      signal: {suggest: int, low: 6, high: 18, step: 3} # bars
+    ctx_macd:
+      # MACD (timeframe contexte): périodes (bougies)
+      fast: {suggest: int, low: 6, high: 18, step: 3} # bars
+      slow: {suggest: int, low: 24, high: 60, step: 6} # bars
+      signal: {suggest: int, low: 6, high: 18, step: 3} # bars
+    exec_cci:
+      # CCI (timeframe exécution): périodes (bougies)
+      fast: {suggest: int, low: 18, high: 66, step: 8} # bars
+      medium: {suggest: int, low: 80, high: 96, step: 8} # bars
+      slow: {suggest: int, low: 122, high: 282, step: 8} # bars
+    ctx_cci:
+      # CCI (timeframe contexte): périodes (bougies)
+      fast: {suggest: int, low: 18, high: 66, step: 8} # bars
+      medium: {suggest: int, low: 80, high: 96, step: 8} # bars
+      slow: {suggest: int, low: 122, high: 282, step: 8} # bars
+    stoch:
+      # Stochastique (timeframe exécution): k/d = périodes (bougies)
+      k: {suggest: int, low: 10, high: 40, step: 2} # bars
+      d: {suggest: int, low: 2, high: 12, step: 1} # bars
+
+  agent:
+    # Seuil "extrême" sur le CCI (unités CCI; typiquement ~100). Sert aux règles d'entrée.
+    exec_cci_extreme: {suggest: float, low: 70.0, high: 150.0, step: 10.0} # CCI
+    # Seuil "extrême" sur le CCI (contexte)
+    ctx_cci_extreme: {suggest: float, low: 70.0, high: 150.0, step: 10.0} # CCI
+    # Force minimale (filtre de tranches MACD_hist): ratio abs(macd_hist/close).
+    # Exemple: 0.001 = 0.1% du prix (dimensionless).
+    min_abs_force_exec: {suggest: float, low: 0.0, high: 0.005, step: 0.0001} # ratio
+    # Même chose côté contexte
+    min_abs_force_ctx: {suggest: float, low: 0.0, high: 0.005, step: 0.0001} # ratio
+
+  backtest:
+    exit_mode:
+      # Mode de sortie de position:
+      # - exec_tranche_end: sortie fin de tranche MACD_hist exécution
+      # - opposite_signal: sortie au signal opposé
+      # - eod: fin de journée
+      # - signal: croisement stoch (optionnellement après extrême)
+      # - tp_pct: take profit fixe (ratio)
+      # - trailing_stop: stop suiveur (ratio)
+      suggest: categorical
+      choices: [exec_tranche_end, opposite_signal, eod, signal, tp_pct, trailing_stop]
+    # TP fixe en ratio: 0.01 = 1%.
+    # Utilisé si exit_mode=tp_pct.
+    tp_pct: {suggest: float, low: 0.005, high: 0.03, step: 0.005} # ratio
+    # Trailing stop en ratio: 0.01 = 1%.
+    # Utilisé si exit_mode=trailing_stop.
+    trailing_stop_pct: {suggest: float, low: 0.005, high: 0.03, step: 0.005} # ratio
+    # Stop loss fixe en ratio: 0.01 = 1%. 0.0 = désactivé.
+    sl_pct: {suggest: float, low: 0.0, high: 0.03, step: 0.005} # ratio
+    # Seuil stoch "haut" en unités stoch (0..100). Utilisé si exit_mode=signal.
+    stoch_high: {suggest: float, low: 60.0, high: 95.0, step: 5.0} # 0..100
+    # Seuil stoch "bas" en unités stoch (0..100). Utilisé si exit_mode=signal.
+    stoch_low: {suggest: float, low: 5.0, high: 40.0, step: 5.0} # 0..100
+    stoch_wait_extreme:
+      # Si true: pour exit_mode=signal, on attend qu'un extrême (haut/bas) soit touché avant d'accepter un croisement.
+      suggest: categorical
+      choices: [true, false]

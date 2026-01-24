@@ -1,0 +1,201 @@
+# Paramètres du backtest
+backtest:
+  # Symbole (ex: "LINKUSDT")
+  symbol: "LINKUSDT"
+  # Date de début (YYYY-MM-DD)
+  start_date: "2024-01-01"
+  # Date de fin (YYYY-MM-DD)
+  end_date: "2024-12-31"
+  # Timeframe des bougies (ex: "15m", "1m")
+  timeframe: "1m"
+  # Capital initial (USDT)
+  capital_usdt: 100.0
+  # Levier (utilisé uniquement pour le calcul de marge simplifié dans ce script)
+  leverage: 20.0
+  # Frais par ordre (0.0015 = 0.15%)
+  fee_rate: 0.0015
+  # Seuil de liquidation (modèle simplifié)
+  liquidation_threshold_pct: 0.05
+
+# Paramètres de la stratégie
+strategy:
+  # Sens ("long" ou "short")
+  side: "long"
+  # Multiplicateur de taille de parts (impacte le calcul de max_portions)
+  parts_multiplier: 5
+  # Distance DCA initiale (en %)
+  d_start_pct: 0.25
+  # Pas DCA (en %)
+  d_step_pct: 0.25
+  # TP global (%) (mode tp_full)
+  tp_pct: 1.25
+  # Mode TP: "tp_full" (historique) ou "tp_cycles" (multi-cycles)
+  tp_mode: "tp_cycles"
+  # Distance du premier TP partiel (%) (mode tp_cycles)
+  tp_d_start_pct: 0.5
+  # Pas entre niveaux de TP (%) (mode tp_cycles)
+  tp_d_step_pct: 0.2
+  # Ratio de fermeture lors d'un TP partiel (mode tp_cycles)
+  tp_close_ratio: 0.2
+  # Distance minimale (en %) pour autoriser une nouvelle BASE si bucket non vide (mode tp_cycles)
+  tp_new_cycle_min_distance_pct: 0.5
+  # Cooldown après une clôture complète (minutes)
+  reentry_cooldown_minutes: 0
+  # Nombre max de cycles complets (0 = illimité)
+  max_cycles: 0
+
+# Filtres / signaux
+filters:
+  # Signal d'entrée basé sur flip du MACD histogramme
+  macd_hist_flip:
+    # Activer le signal d'entrée macd_hist_flip
+    enabled: true
+
+    # Paramètres de l'indicateur MACD (ce script calcule un seul MACD global)
+    macd:
+      # Période fast
+      fast_period: 12
+      # Période slow
+      slow_period: 26
+      # Période du signal
+      signal_period: 9
+
+    prev_opposite_tranche:
+      # Activer la contrainte sur la tranche MACD précédente (opposée)
+      enabled: true
+
+      # Filtre CCI (utilisé pour bloquer/autoriser des DCA). Les paramètres d'indicateur sont ici.
+      cci:
+        # Activer le filtre CCI (true/false)
+        enabled: true  
+        # Période CCI
+        period: 20
+        # Seuil Long (ex: 100 => accepte CCI <= -100)
+        bull_threshold: 100.0
+        # Seuil Short (ex: 100 => accepte CCI >= +100)
+        bear_threshold: 100.0
+
+      # Filtre CCI medium (utilisé pour bloquer/autoriser des DCA). Les paramètres d'indicateur sont ici.
+      cci_medium:
+        # Activer le filtre CCI medium (true/false)
+        enabled: false 
+        # Période CCI medium
+        period: 60
+        # Seuil Long (ex: 100 => accepte CCI <= -100)
+        bull_threshold: 100.0
+        # Seuil Short (ex: 100 => accepte CCI >= +100)
+        bear_threshold: 100.0
+
+      # Filtre CCI slow (utilisé pour bloquer/autoriser des DCA). Les paramètres d'indicateur sont ici.
+      cci_slow:
+        # Activer le filtre CCI slow (true/false)
+        enabled: false
+        # Période CCI slow
+        period: 240
+        # Seuil Long (ex: 100 => accepte CCI <= -100)
+        bull_threshold: 100.0
+        # Seuil Short (ex: 100 => accepte CCI >= +100)
+        bear_threshold: 100.0
+
+      # Filtre MFI (utilisé pour bloquer/autoriser des DCA). Les paramètres d'indicateur sont ici.
+      mfi:
+        # Activer le filtre MFI (true/false)
+        enabled: false 
+        # Période MFI
+        period: 14
+        # Seuil Long (ex: 20 => accepte MFI <= 20)
+        long_threshold: 50.0
+        # Seuil Short (ex: 80 => accepte MFI >= 80)
+        short_threshold: 50.0
+
+      # Filtre DMI (utilisé pour bloquer/autoriser des DCA). Les paramètres d'indicateur sont ici.
+      dmi:
+        # Activer le filtre DMI (true/false)
+        enabled: true
+        # Période DMI
+        period: 14
+        # Smoothing ADX
+        adx_smoothing: 6
+
+  # Signal TP partiel (flip MACD histogramme dans le sens opposé)
+  tp_partial_macd_hist_flip:
+    # Activer le signal TP partiel
+    enabled: true 
+
+    mode: stoch_cross
+    stoch:
+      k_period: 14
+      d_period: 3
+
+    # Paramètres MACD (optionnel). Si présent ici mais aussi dans macd_hist_flip.macd,
+    # c'est macd_hist_flip.macd qui est prioritaire dans le loader.
+    macd:
+      # Période fast
+      fast_period: 12
+      # Période slow
+      slow_period: 26
+      # Période du signal
+      signal_period: 9
+
+    prev_opposite_tranche:
+      # Activer la contrainte sur la tranche MACD précédente (opposée) pour le TP partiel
+      enabled: true 
+      # Filtre CCI (utilisé pour bloquer/autoriser des DCA). Les paramètres d'indicateur sont ici.
+      cci:
+        # Activer le filtre CCI (true/false)
+        enabled: true
+        # Période CCI
+        period: 20
+        # Seuil Long (ex: 100 => accepte CCI <= -100)
+        bull_threshold: 100.0
+        # Seuil Short (ex: 100 => accepte CCI >= +100)
+        bear_threshold: 100.0
+
+      # Filtre CCI medium (utilisé pour bloquer/autoriser des DCA). Les paramètres d'indicateur sont ici.
+      cci_medium:
+        # Activer le filtre CCI medium (true/false)
+        enabled: false
+        # Période CCI medium
+        period: 48
+        # Seuil Long (ex: 100 => accepte CCI <= -100)
+        bull_threshold: 100.0
+        # Seuil Short (ex: 100 => accepte CCI >= +100)
+        bear_threshold: 100.0
+
+      # Filtre CCI slow (utilisé pour bloquer/autoriser des DCA). Les paramètres d'indicateur sont ici.
+      cci_slow:
+        # Activer le filtre CCI slow (true/false)
+        enabled: false
+        # Période CCI slow
+        period: 96
+        # Seuil Long (ex: 100 => accepte CCI <= -100)
+        bull_threshold: 100.0
+        # Seuil Short (ex: 100 => accepte CCI >= +100)
+        bear_threshold: 100.0
+
+      # Filtre MFI (utilisé pour bloquer/autoriser des DCA). Les paramètres d'indicateur sont ici.
+      mfi:
+        # Activer le filtre MFI (true/false)
+        enabled: false 
+        # Période MFI
+        period: 14
+        # Seuil Long (ex: 20 => accepte MFI <= 20)
+        long_threshold: 50.0
+        # Seuil Short (ex: 80 => accepte MFI >= 80)
+        short_threshold: 50.0
+
+      # Filtre DMI (utilisé pour bloquer/autoriser des DCA). Les paramètres d'indicateur sont ici.
+      dmi:
+        # Activer le filtre DMI (true/false)
+        enabled: true
+        # Période DMI
+        period: 14
+        # Smoothing ADX
+        adx_smoothing: 6
+
+# Sorties / fichiers générés
+output:
+  # Dossier de sortie
+  out_dir: "data/processed/backtests/one_side_dca"
+  # Générer un PNG de l'equity
+  png: true

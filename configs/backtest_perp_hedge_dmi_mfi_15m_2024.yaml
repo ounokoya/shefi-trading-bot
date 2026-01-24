@@ -1,0 +1,26 @@
+backtest:
+  symbol: "LINKUSDT"
+  start_date: "2024-01-01"
+  end_date: "2024-12-31"
+  timeframe: "15m"
+  leverage: 10.0
+  fee_rate: 0.0015
+  liquidation_threshold_pct: 0.05
+
+money_manager:
+  capital_usdt: 1000.0
+  initial_long_usdt: 100.0
+  initial_short_usdt: 100.0
+  max_initial_invest_usdt: 600.0
+  gap_mode: "leveq"
+  max_notional_gap_pct: 0.85
+  min_leg_notional_usdt: 25.0
+  gap_threshold_pct: 0.25
+  min_step_usdt: 25.0
+  max_step_usdt: 150.0
+  cooldown_bars: 3
+  leverage: 10.0
+  near_liquidation_risk_ratio: 0.85
+
+brain:
+  type: "dmi_mfi_tf_15m"

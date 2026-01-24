@@ -1,0 +1,217 @@
+# Backtest séparé: stratégie "price action sur tranche"
+ #
+ # Logique:
+ # - Trigger = même événement tranche/extreme/confluence que le backtest confluence (signals.trigger)
+ # - Une fois trigger détecté, le moteur passe en état "armed" puis attend la confirmation "price action" (signals.entry)
+ # - La sortie par signal (signals.exit) utilise l'inverse logique des filtres (confirmations bear pour sortir un LONG, etc.)
+ #
+ # Notes:
+ # - Toutes les valeurs sont des exemples; adapte au marché / timeframe.
+ # - Les frais sont appliqués en aller-retour: 2 * fee_rate.
+data:
+  # Chemin vers le CSV de klines (doit contenir ts + OHLCV minimum)
+  csv: data/processed/klines/LINKUSDT_5m_2025-01-01_2025-12-31.csv
+  # Nom de la colonne timestamp (en millisecondes)
+  ts_col: ts
+  # Mapping des colonnes OHLCV si ton CSV n'utilise pas les noms par défaut
+  ohlc:
+    open: open
+    high: high
+    low: low
+    close: close
+    volume: volume
+
+backtest:
+  # Taille de la fenêtre glissante visible par les signaux à l'instant t (zéro lookahead)
+  window_size: 600
+  # Horizon utilisé pour certaines métriques (rolling), typiquement 7/14/30
+  horizon_days: 7
+  # Frais par côté (0.0015 = 0.15%). Aller-retour = 2*fee_rate = 0.30%
+  fee_rate: 0.0015
+
+indicators:
+  # Même si les colonnes sont déjà présentes dans le CSV, cette section documente les paramètres attendus.
+  # MACD => colonnes attendues: macd_line, macd_hist
+  macd: {fast: 12, slow: 26, signal: 9}
+  # CCI => colonnes attendues: cci_<fast>, cci_<medium>, cci_<slow>
+  cci: {fast: 30, medium: 120, slow: 300}
+  # VWMA => colonnes attendues: vwma_<fast>, vwma_<medium>
+  vwma: {fast: 12, medium: 72}
+  # Stochastic => colonnes attendues: stoch_k, stoch_d
+  stoch: {k: 14, d: 3}
+  # Vortex => colonnes attendues: vi_plus, vi_minus
+  vortex: {period: 300}
+  # DMI/ADX => colonnes attendues: di_plus, di_minus, adx
+  dmi: {period: 300, adx_smoothing: 14}
+  # ATR => colonnes attendues: atr_<len> (ex: atr_14)
+  atr: {len: 14}
+
+trend_filter:
+  # Filtre de tendance appliqué UNIQUEMENT au trigger (signals.trigger), pas sur la sortie.
+  enabled: false
+  # Valeurs possibles: none|vortex|dmi|both
+  mode: none
+
+signals:
+  trigger:
+    # Nom du preset confluence (mêmes presets que le backtest confluence)
+    name: intraday_strict
+    params:
+      # Type de confluence: instant | tranche_last
+      confluence_type: tranche_last
+      # Mode directionnel: long (LOW uniquement) | short (HIGH uniquement) | both
+      mode: both
+      # Nombre minimal de séries confirmées. null => toutes les séries du preset
+      min_confirmed: 3
+      # Séries utilisées pour la confluence "extreme".
+      # - add: ajoute des colonnes en plus de celles du preset
+      # - exclude: retire des colonnes (preset ou ajoutées)
+      # Alias acceptés (résolus vers les colonnes réelles):
+      # - cci_fast/cci_medium/cci_slow -> cci_<indicators.cci.*>
+      # - vwma_fast/vwma_medium -> vwma_<indicators.vwma.*>
+      series:
+        add: [close, macd_line, macd_hist, cci_fast, cci_medium, cci_slow, vwma_fast, vwma_medium]
+        exclude: []
+      # Seuils CCI (optionnels). Si non défini, on utilise ceux du preset.
+      cci_thresholds:
+        fast: 100
+        medium: 100
+        slow: 100
+
+  entry:
+    params:
+      price_action:
+        # Mode d'entrée:
+        # - simple => anciens filtres (VWMA confirm / Stoch / MACD)
+        # - vwma_break => workflow séquentiel: trigger -> cassure VWMA fast -> validation pente VWMA + MACD + bougie
+        # Valeurs possibles: simple | vwma_break
+        entry_mode: vwma_break
+
+        # Nombre max de bougies après la cassure VWMA fast pour trouver la validation (si dépasse => on ré-attend une cassure).
+        # Si une cassure inverse survient avant, on reset aussi la cassure + le compteur.
+        # Valeurs possibles: entier > 0
+        vwma_break_max_bars: 6
+
+        # Filtre "tendance histogramme sur tranche" (contrarien):
+        # - none => pas de filtre
+        # - trend => accepte tranche "tendance" (au moins 1 bougie où sign(macd_line)=sign(macd_signal)=sign(macd_hist))
+        # - healthy => exige tranche "saine" (toutes les bougies alignées)
+        # Dans les deux cas, la stratégie prend une position CONTRARIENNE à la tranche (trend_side opposé au open_side du trigger).
+        # Valeurs possibles: none | trend | healthy
+        tranche_hist_trend_mode: healthy
+
+        # Nombre de bougies consécutives de confirmation VWMA (ex: 3 => close > vwma_fast sur 3 bougies pour un LONG)
+        # Valeurs possibles: entier > 0
+        vwma_confirm_bars: 3
+        # Mode pente histogramme MACD:
+        # - delta => dérivée 1 (hist[t] - hist[t-1])
+        # - accel => dérivée 2 (accélération/décélération)
+        # Valeurs possibles: delta | accel
+        macd_hist_slope_mode: delta
+
+        # Mode accélération histogramme MACD (utilisé si macd_hist_slope_mode=accel):
+        # - diff2 => dd = (hist[t]-hist[t-1]) - (hist[t-1]-hist[t-2])
+        # - mono => hist[t] > hist[t-1] > hist[t-2] (ou inverse en short)
+        # Valeurs possibles: diff2 | mono
+        macd_hist_accel_mode: diff2
+        filters:
+          # Ajout/retrait de filtres (soft configuration).
+          # Filtres disponibles (entry):
+          # - vwma_fast_confirm
+          # - vwma_medium_confirm
+          # - vwma_fast_slope
+          # - stoch_cross
+          # - macd_hist_slope
+          # - macd_hist_sign
+          # - candle_color
+          # - macd_hist_sign_change (utilise exit_hist_sign_change_mode)
+          add: [vwma_fast_slope, candle_color, macd_hist_slope, macd_hist_sign]
+          exclude: []
+
+  exit:
+    params:
+      price_action:
+        # Nombre de bougies consécutives de confirmation VWMA (côté "inverse" pour déclencher la sortie)
+        # Valeurs possibles: entier > 0
+        vwma_confirm_bars: 1
+        macd_hist_slope_mode: delta
+        # Mode changement de signe histogramme MACD (sortie):
+        # - cross => exige un vrai passage de signe entre t-1 et t
+        # - sign => exige seulement le signe final (plus permissif)
+        # Valeurs possibles: cross | sign
+        exit_hist_sign_change_mode: sign
+        filters:
+          # Filtres disponibles (exit):
+          # - vwma_fast_confirm
+          # - vwma_medium_confirm
+          # - stoch_cross
+          # - macd_hist_slope
+          # - macd_hist_sign_change
+          add: [vwma_fast_confirm, macd_hist_slope]
+          exclude: []
+
+exit_policy:
+  # Si true: on autorise la sortie par signal (signals.exit)
+  # Si false: la position ne peut sortir que via TP/SL (ou EOD)
+  allow_exit_signal: true
+
+tp:
+  # Valeurs possibles: none | fixed_pct | pivot_grid
+  # fixed_pct => nécessite tp_pct (ex: 0.01 = +1% long / -1% short)
+  # pivot_grid => snap le TP sur la grille de pivots multi-TF pondérée (confluence)
+  # - runtime: on maintient une table cache (prev_table) et on ne reconstruit que si nécessaire
+  # - TP = premier pivot au-delà de la cible tp_pct (LONG: pivot > entry*(1+tp_pct), SHORT: pivot < entry*(1-tp_pct))
+  mode: pivot_grid
+  tp_pct: 0.01
+
+pivot_grid:
+  # Utilisé uniquement si tp.mode=pivot_grid
+  enabled: true
+  # Symbol utilisé par la grille (doit matcher les registries)
+  symbol: LINKUSDT
+  # Registries pivot par TF (JSON produits par les démos pivots)
+  registries:
+    5m: data/processed/pivots/LINKUSDT_5m.json
+    1h: data/processed/pivots/LINKUSDT_1h.json
+    4h: data/processed/pivots/LINKUSDT_4h.json
+  # Paramètre principal (mode grid): pas en %
+  grid_pct: 0.05
+  # Valeurs possibles: grid | zones
+  mode: grid
+  keep_top2_5m: true
+  # Règle cache: si la table précédente a au moins N supports + N résistances autour du prix courant, on la réutilise
+  min_supports: 2
+  min_resistances: 2
+  # Paramètres zones (mode=zones). Identiques à la démo 16.
+  zones_cfg:
+    macro: {tf: 4h, radius_pct: 0.10, padding_pct: 0.05}
+    context: {tf: 1h, radius_pct: 0.05, padding_pct: 0.03}
+    execution: {tf: 5m, radius_pct: 0.02, padding_pct: 0.01}
+
+pivot_temporal_memory:
+  # Filtre optionnel: valide un trigger uniquement si la "mémoire" des pivots confirme la solidité du niveau.
+  # Désactivé par défaut.
+  enabled: false
+  # Rayon inclusif autour du niveau du trigger (ex: 0.01 = ±1%)
+  radius_pct: 0.01
+  # Seuils min de solidité (au moins l'un des 3 doit être satisfait)
+  # - 1 slow OU 2 medium OU 4 fast
+  min_fast: 4
+  min_medium: 2
+  min_slow: 1
+  # Limite le nombre d'events sélectionnés (triés du plus jeune au plus vieux)
+  max_events: 50
+
+sl:
+  # Valeurs possibles: none | fixed_pct | trailing_pct | atr
+  # - fixed_pct => sl_pct
+  # - trailing_pct => trail_pct
+  # - atr => atr_mult (distance = atr_mult * ATR à l'entrée) + optionnel: atr_len
+  mode: none 
+  sl_pct: 0.1
+
+output:
+  # Dossier de sortie: trades.csv, equity.csv, equity.png
+  out_dir: data/processed/backtests/price_action_tranche_example
+  # Active/désactive la génération du PNG (matplotlib)
+  png: true

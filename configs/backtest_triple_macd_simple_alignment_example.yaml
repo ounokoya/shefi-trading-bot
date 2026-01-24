@@ -1,0 +1,62 @@
+bybit:
+  symbol: LINKUSDT  # ex: LINKUSDT
+  category: linear  # linear|spot|inverse (selon Bybit)
+  base_url: https://api.bybit.com
+  interval: 15m  # ex: 1|3|5|15|30|60 (minutes) ou 15m|1h|4h|1d
+  limit: 1000  # 1..1000 (pagination interne)
+  start: 2026-01-01  # YYYY-MM-DD (UTC)
+  end: 2026-01-12  # YYYY-MM-DD (UTC)
+  warmup_bars: 0  # 0 => auto (basé sur MACD slow)
+
+indicators:
+  macd_fast: {fast: 4, slow: 12, signal: 4}  # tous >= 1
+  macd_medium: {fast: 12, slow: 36, signal: 9}
+  macd_slow: {fast: 24, slow: 72, signal: 18}
+
+agent:
+  hist_zero_policy: carry_prev_sign  # carry_prev_sign|neutral_zero
+  require_hists_rising_on_entry: true  # true|false ("hist croissant" dans le sens de la tendance)
+
+  slow:
+    enabled: true  # true|false
+    reject_zone_transition: true   # true|false (rejette si zone_sign==0)
+    allow_trade_when_respiration: true  # true|false
+    require_align_zone_to_macro: false  # true|false
+    require_align_hist_to_macro: false  # true|false
+    min_abs_force: 0.0  # float >= 0; force = abs(hist/close)
+    require_force_rising: false  # true|false
+    force_rising_bars: 2  # int >= 2 (nb de barres strictement croissantes)
+
+  medium:
+    enabled: true
+    reject_zone_transition: true 
+    allow_trade_when_respiration: true
+    require_align_zone_to_macro: true 
+    require_align_hist_to_macro: true 
+    min_abs_force: 0.0
+    require_force_rising: true 
+    force_rising_bars: 2
+
+  fast:
+    enabled: true
+    reject_zone_transition: true 
+    allow_trade_when_respiration: true
+    require_align_zone_to_macro: true 
+    require_align_hist_to_macro: true 
+    min_abs_force: 0.0
+    require_force_rising: true 
+    force_rising_bars: 2
+
+backtest:
+  fee_rate: 0.0015  # fee par côté (aller simple). Round-trip = 2*fee_rate
+  use_net: true  # true => net_ret; false => gross_ret
+  exit_mode: tp_pct  # opposite_signal|eod|tp_pct|trailing_stop
+  tp_pct: 0.01  # requis si exit_mode=tp_pct
+  trailing_stop_pct: 0.01  # requis si exit_mode=trailing_stop
+  sl_pct: 0.01  # optionnel; >=0
+  entry_on_next_bar: true  # true => exécution au bar suivant (anti-lookahead)
+  max_signals: 0  # 0 => illimité
+
+output:
+  out_dir: data/processed/backtests/triple_macd_simple_alignment_yaml
+  save_csv: true

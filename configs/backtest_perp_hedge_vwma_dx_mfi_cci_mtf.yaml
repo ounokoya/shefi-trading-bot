@@ -1,0 +1,38 @@
+backtest:
+  symbol: "LINKUSDT"
+  start_date: "2024-01-01"
+  end_date: "2024-12-31"
+  timeframe: "5m"
+  leverage: 10.0
+  fee_rate: 0.0015
+  liquidation_threshold_pct: 0.05
+
+money_manager:
+  mode: "event_target"
+  capital_usdt: 1000.0
+  initial_long_pct: 0.0
+  initial_short_pct: 0.0
+  initial_long_usdt: 0.0
+  initial_short_usdt: 0.0
+  max_initial_invest_pct: 0.6
+  gap_threshold_pct: 0.05
+  cooldown_bars: 3
+  leverage: 10.0
+
+brain:
+  type: "vwma_dx_mfi_cci_mtf"
+  higher_tf: "2h"
+  htf_close_opposite: true     
+  vwma_fast_ltf: 12
+  vwma_slow_ltf: 96
+  vwma_fast_htf: 12
+  vwma_slow_htf: 168
+  dmi_period: 14
+  adx_smoothing: 6
+  mfi_period: 14
+  cci_period: 20
+  mfi_high: 80.0
+  mfi_low: 20.0
+  cci_high: 100.0
+  cci_low: -100.0
+  ltf_gate_mode: "increase_only"

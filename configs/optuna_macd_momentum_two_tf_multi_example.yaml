@@ -1,0 +1,105 @@
+ # IMPORTANT UNITÉS:
+# - Tous les champs finissant par "_pct" sont des RATIOS (pas des "% humains"). Exemple: 0.01 = 1%.
+# - Les durées sont en secondes ("_s").
+# - Les périodes d'indicateurs (MACD/CCI/Stoch) sont en nombre de bougies (bars) sur le timeframe concerné.
+#
+# OBJECTIFS (multi-objectifs):
+# - pnl: maximise (summary.equity_end)
+# - equity_dd: minimise (abs(summary.max_dd), en ratio)
+# - trade_dd: minimise (summary.dd_max_trade, en ratio)
+# - duration_s_max: minimise (summary.duration_s_max, en secondes)
+# - winrate: maximise (summary.winrate, 0..1)
+#
+# Config backtest de base (Bybit + indicateurs + agent + backtest). Optuna surcharge uniquement les champs dans search_space.
+base_backtest_config: configs/backtest_macd_momentum_two_tf_example.yaml # chemin YAML
+
+optuna:
+  # Nom du study Optuna (sert aussi pour les fichiers de sortie)
+  study_name: macd_momentum_two_tf_multi
+  # Nombre de trials Optuna
+  n_trials: 10000
+  # Sampler Optuna: "tpe" (Tree-structured Parzen Estimator) ou "random" etc.
+  sampler: tpe
+  # Graine aléatoire (reproductibilité)
+  seed: 42
+  # Niveau de logs ("debug"|"info"|"warning"|"error")
+  log_level: debug 
+  show_progress_bar: true
+
+
+
+output:
+  # Dossier où seront écrits: optuna_trials.csv, pareto_trials.csv, optuna_summary.yaml, etc.
+  out_dir: data/processed/backtests/optuna_macd_momentum_two_tf_multi
+
+constraints:
+  # Filtre de qualité: si un trial produit moins de trades que ça, il est pruné.
+  min_trades: 10
+
+search_space:
+  # Les feuilles utilisent le format:
+  # {suggest: int|float|categorical, low: ..., high: ..., step: ...} ou {suggest: categorical, choices: [...]}
+  indicators:
+    exec_macd:
+      # MACD (timeframe exécution): périodes (bougies)
+      fast: {suggest: int, low: 6, high: 18, step: 3} # bars
+      slow: {suggest: int, low: 24, high: 60, step: 6} # bars
+      signal: {suggest: int, low: 6, high: 18, step: 3} # bars
+    ctx_macd:
+      # MACD (timeframe contexte): périodes (bougies)
+      fast: {suggest: int, low: 6, high: 18, step: 3} # bars
+      slow: {suggest: int, low: 24, high: 60, step: 6} # bars
+      signal: {suggest: int, low: 6, high: 18, step: 3} # bars
+    exec_cci:
+      # CCI (timeframe exécution): périodes (bougies)
+      fast: {suggest: int, low: 18, high: 66, step: 8} # bars
+      medium: {suggest: int, low: 80, high: 96, step: 8} # bars
+      slow: {suggest: int, low: 122, high: 282, step: 8} # bars
+    ctx_cci:
+      # CCI (timeframe contexte): périodes (bougies)
+      fast: {suggest: int, low: 18, high: 66, step: 8} # bars
+      medium: {suggest: int, low: 80, high: 96, step: 8} # bars
+      slow: {suggest: int, low: 122, high: 282, step: 8} # bars
+    stoch:
+      # Stochastique (timeframe exécution): k/d = périodes (bougies)
+      k: {suggest: int, low: 10, high: 40, step: 2} # bars
+      d: {suggest: int, low: 2, high: 12, step: 1} # bars
+
+  agent:
+    # Seuil "extrême" sur le CCI (unités CCI; typiquement ~100). Sert aux règles d'entrée.
+    exec_cci_extreme: {suggest: float, low: 70.0, high: 150.0, step: 10.0} # CCI
+    # Seuil "extrême" sur le CCI (contexte)
+    ctx_cci_extreme: {suggest: float, low: 70.0, high: 150.0, step: 10.0} # CCI
+    # Force minimale (filtre de tranches MACD_hist): ratio abs(macd_hist/close).
+    # Exemple: 0.001 = 0.1% du prix (dimensionless).
+    min_abs_force_exec: {suggest: float, low: 0.0, high: 0.005, step: 0.0001} # ratio
+    # Même chose côté contexte
+    min_abs_force_ctx: {suggest: float, low: 0.0, high: 0.005, step: 0.0001} # ratio
+
+  backtest:
+    exit_mode:
+      # Mode de sortie de position:
+      # - exec_tranche_end: sortie fin de tranche MACD_hist exécution
+      # - opposite_signal: sortie au signal opposé
+      # - eod: fin de journée
+      # - signal: croisement stoch (optionnellement après extrême)
+      # - tp_pct: take profit fixe (ratio)
+      # - trailing_stop: stop suiveur (ratio)
+      suggest: categorical
+      choices: [exec_tranche_end, opposite_signal, eod, signal, tp_pct, trailing_stop]
+    # TP fixe en ratio: 0.01 = 1%.
+    # Utilisé si exit_mode=tp_pct.
+    tp_pct: {suggest: float, low: 0.005, high: 0.03, step: 0.005} # ratio
+    # Trailing stop en ratio: 0.01 = 1%.
+    # Utilisé si exit_mode=trailing_stop.
+    trailing_stop_pct: {suggest: float, low: 0.005, high: 0.03, step: 0.005} # ratio
+    # Stop loss fixe en ratio: 0.01 = 1%. 0.0 = désactivé.
+    sl_pct: {suggest: float, low: 0.0, high: 0.03, step: 0.005} # ratio
+    # Seuil stoch "haut" en unités stoch (0..100). Utilisé si exit_mode=signal.
+    stoch_high: {suggest: float, low: 60.0, high: 95.0, step: 5.0} # 0..100
+    # Seuil stoch "bas" en unités stoch (0..100). Utilisé si exit_mode=signal.
+    stoch_low: {suggest: float, low: 5.0, high: 40.0, step: 5.0} # 0..100
+    stoch_wait_extreme:
+      # Si true: pour exit_mode=signal, on attend qu'un extrême (haut/bas) soit touché avant d'accepter un croisement.
+      suggest: categorical
+      choices: [true, false]

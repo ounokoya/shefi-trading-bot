@@ -1,0 +1,85 @@
+base_backtest_config: configs/backtest_one_side_dca_mean_distance.yaml
+
+optuna:
+  study_name: one_side_dca_mean_distance_weighted
+  direction: maximize
+  n_trials: 500
+  sampler: tpe
+  seed: 42
+  log_level: warning
+  show_progress_bar: true
+
+output:
+  out_dir: data/processed/backtests/optuna_one_side_dca_mean_distance_weighted
+
+constraints:
+  min_trades: 10
+
+score:
+  # Score = + w_net_pnl*(net_pnl/scale_net_pnl)
+  #         - w_liquidated*(liquidated/scale_liquidated)
+  #         - w_max_dd*(max_dd/scale_max_dd)
+  #         - w_exposure*(exposure/scale_exposure)
+  weights:
+    liquidated: 10.0
+    max_dd: 3.0
+    exposure: 1.0
+    net_pnl: 5.0
+  scales:
+    # liquidated: 0/1
+    liquidated: 1.0
+    # max_dd: ratio (0.25 = 25% DD)
+    max_dd: 0.30
+    # exposure: lev_eff_capital (ex: 10.0 = 10x capital)
+    exposure: 10.0
+    # net_pnl: USDT
+    net_pnl: 10.0
+
+search_space:
+  strategy:
+    d_start_pct: {suggest: float, low: 0.25, high: 3.0, step: 0.25}
+    d_step_pct: {suggest: float, low: 0.25, high: 3.0, step: 0.25}
+    tp_pct: {suggest: float, low: 0.5, high: 5.0, step: 0.5}
+
+  backtest:
+    leverage: {suggest: int, low: 5, high: 50, step: 5}
+
+  filters:
+    macd_hist_flip:
+      enabled:
+        suggest: categorical
+        choices: [true]
+
+      prev_opposite_tranche:
+        enabled:
+          suggest: categorical
+          choices: [true]
+
+        cci:
+          enabled: {suggest: categorical, choices: [true, false]}
+          period: {suggest: int, low: 12, high: 120, step: 6}
+          bull_threshold: {suggest: float, low: 60.0, high: 200.0, step: 10.0}
+          bear_threshold: {suggest: float, low: 60.0, high: 200.0, step: 10.0}
+
+        cci_medium:
+          enabled: {suggest: categorical, choices: [true, false]}
+          period: {suggest: int, low: 24, high: 240, step: 12}
+          bull_threshold: {suggest: float, low: 60.0, high: 200.0, step: 10.0}
+          bear_threshold: {suggest: float, low: 60.0, high: 200.0, step: 10.0}
+
+        cci_slow:
+          enabled: {suggest: categorical, choices: [true, false]}
+          period: {suggest: int, low: 48, high: 360, step: 12}
+          bull_threshold: {suggest: float, low: 60.0, high: 200.0, step: 10.0}
+          bear_threshold: {suggest: float, low: 60.0, high: 200.0, step: 10.0}
+
+        mfi:
+          enabled: {suggest: categorical, choices: [true, false]}
+          period: {suggest: int, low: 7, high: 28, step: 1}
+          low_threshold: {suggest: float, low: 5.0, high: 60.0, step: 5.0}
+          high_threshold: {suggest: float, low: 40.0, high: 95.0, step: 5.0}
+
+        dmi:
+          enabled: {suggest: categorical, choices: [true, false]}
+          period: {suggest: int, low: 7, high: 28, step: 1}
+          adx_smoothing: {suggest: int, low: 3, high: 14, step: 1}

@@ -1,0 +1,37 @@
+bybit:
+  symbol: LINKUSDT
+  category: linear
+  base_url: https://api.bybit.com
+  interval: 6h
+  limit: 1000
+  start: '2026-01-01'
+  end: '2026-01-20'
+window:
+  window_days: 90
+indicators:
+  macd:
+    fast: 12
+    slow: 26
+    signal: 9
+  dmi:
+    period: 28
+    adx_smoothing: 5
+  stoch:
+    k: 18
+    k_smooth: 4
+    d: 5
+  cci:
+    period: 18
+pivots:
+  zone_pct: 0.02
+  merge_pct: 0.015
+  max_pivots: 10
+signals:
+  condition_window_bars: 25
+  enable_premature: true
+backtest:
+  sl_pct: 0.07
+output:
+  out_dir: data/processed/backtests/new_strategie_flip_example
+  png: true
+  save_csv: true

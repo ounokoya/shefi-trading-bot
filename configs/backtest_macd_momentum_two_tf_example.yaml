@@ -1,0 +1,48 @@
+bybit:
+  symbol: LINKUSDT
+  category: linear
+  base_url: https://api.bybit.com
+  exec_interval: 15m
+  ctx_interval: 1h
+  exec_limit: 1000
+  ctx_limit: 1000
+  start: 2025-01-01
+  end: 2025-12-31
+  warmup_bars: 0
+
+indicators:
+  exec_macd: {fast: 12, slow: 26, signal: 9}
+  ctx_macd: {fast: 12, slow: 26, signal: 9}
+  exec_cci: {fast: 30, medium: 120, slow: 300}
+  ctx_cci: {fast: 30, medium: 120, slow: 300}
+  stoch: {k: 14, d: 3}
+
+agent:
+  exec_cci_extreme: 90.0
+  ctx_cci_extreme: 90.0
+  min_abs_force_exec: 0.0
+  min_abs_force_ctx: 0.0
+  take_exec_cci_extreme_if_ctx_not_extreme: false
+  take_exec_and_ctx_cci_extreme: false
+  signal_on_ctx_flip_if_exec_aligned: false
+
+backtest:
+  fee_rate: 0.0015
+  # exec_tranche_end | opposite_signal | eod | signal | tp_pct | trailing_stop
+  exit_mode: tp_pct
+  # used if exit_mode=tp_pct
+  tp_pct: 0.01
+  # used if exit_mode=trailing_stop
+  trailing_stop_pct: 0.01
+  sl_pct: 0.01
+  # used if exit_mode=signal
+  stoch_high: 80.0
+  stoch_low: 20.0
+  stoch_wait_extreme: true
+
+  max_signals: 0
+
+output:
+  out_dir: data/processed/backtests/macd_momentum_two_tf_yaml
+  save_csv: true
+  print_top_reasons: 10

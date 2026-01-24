@@ -1,0 +1,84 @@
+# Triple VWMA Trend Backtest (sur-mesure)
+# Notes:
+# - Tous les pourcentages sont en "fraction" (ex: 0.003 = 0.3%).
+# - Les timestamps sont supposés être en millisecondes (epoch ms).
+# - Les chemins peuvent être relatifs à la racine du projet.
+data:
+   # **Obligatoire**: chemin CSV OHLCV.
+   # Valeur possible: string (chemin). Ex: data/processed/klines/BTCUSDT_5m.csv
+   csv: data/processed/klines/LINKUSDT_5m_2025-12-01_2025-12-31.csv
+   # Colonne timestamp (epoch ms).
+   # Valeur possible: string (nom de colonne). Ex: ts, timestamp, open_time
+   ts_col: ts
+   ohlc:
+     # Mapping des colonnes OHLCV.
+     # Valeurs possibles: string (nom de colonne)
+     open: open
+     high: high
+     low: low
+     close: close
+     # Volume: si absent dans le CSV, le moteur mettra 1.0 partout.
+     volume: volume
+
+vwma:
+   # Périodes VWMA (entiers >= 1).
+   # Valeurs possibles: int. Ex: fast=9/12/21, mid=55/72/100, slow=168/200/300
+   fast: 12
+   mid: 72
+   slow: 168
+
+zones:
+   # Rayon des zones autour de chaque VWMA.
+   # Valeurs possibles: float >= 0.0. Ex: 0.0005 (=0.05%), 0.001 (=0.1%)
+   fast_radius_pct: 0.0005
+   mid_radius_pct: 0.0005
+   slow_radius_pct: 0.0005
+   # Multiplicateur de "large zone" (= radius_pct * zone_large_mult).
+   # Valeurs possibles: float >= 1.0. Ex: 1.0, 2.0, 3.0
+   zone_large_mult: 2.0
+   # Confirmation de cassure "slow" pendant un pullback.
+   # Valeurs possibles: int >= 0.
+   # - 0: désactive l'event slow_break_confirmed.
+   # - 1+: exige N bougies de confirmation.
+   break_confirm_bars: 1
+
+backtest:
+   # Frais par côté (entry + exit). Le moteur retire 2*fee_rate par trade.
+   # Valeurs possibles: float >= 0.0. Ex: 0.0015 (=0.15% par côté)
+   fee_rate: 0.0015
+   # No-lookahead strict.
+   # Valeurs possibles: true|false
+   # - true: calcule les events à l'index i via df[:i+1], exécute à i+1 open (plus lent).
+   # - false: pré-calcule les events sur tout le df (plus rapide, mais peut biaiser via la segmentation en cycles).
+   no_lookahead: true
+
+strategy:
+   # Mode de stratégie.
+   # Valeurs possibles: scalp|swing
+   # Filtre de risque sur l'entrée (anti "SL trop large").
+   # Si la distance entre le prix d'entrée et l'extrême du pullback dépasse max_sl_pct,
+   # alors l'entrée est ignorée.
+   # - Valeurs possibles: null (désactivé) ou float > 0.0 (ex: 0.005..0.03)
+   # - Distance utilisée: abs(entry - extreme_pullback) / entry
+   max_sl_pct: 0.05
+   mode: scalp
+   scalp:
+     # Take-profit fixe, appliqué depuis le prix d'entrée.
+     # Valeurs possibles: float > 0.0. Ex: 0.001..0.01
+     tp_pct: 0.01
+     # Buffer de sécurité du stop-loss autour de l'extrême du pullback.
+     # LONG: SL = extreme_price*(1 - sl_buffer_pct)
+     # SHORT: SL = extreme_price*(1 + sl_buffer_pct)
+     # Valeurs possibles: float >= 0.0. Ex: 0.0005..0.01
+     sl_buffer_pct: 0.005
+   swing:
+     # Buffer de sécurité du stop (initial + trailing).
+     # - SL initial: niveau du cross fast/slow +/- buffer
+     # - Trailing: sur chaque pullback_strong, extrême +/- buffer
+     # Valeurs possibles: float >= 0.0
+     sl_buffer_pct: 0.0001
+
+output:
+   # Dossier de sortie des résultats (CSV).
+   # Valeurs possibles: string (chemin). Ex: data/processed/backtests_triple_vwma_trend
+   out_dir: data/processed/backtests_triple_vwma_trend

@@ -1,0 +1,125 @@
+data:
+  # Chemin vers le CSV des klines (colonnes: ts, open, high, low, close, volume)
+  csv: data/processed/klines/LINKUSDT_5m_2025-01-01_2025-12-31.csv
+  # Nom de la colonne timestamp (ms)
+  ts_col: ts
+  # Mapping des colonnes OHLCV si ton CSV n'utilise pas les noms par défaut
+  ohlc:
+    open: open
+    high: high
+    low: low
+    close: close
+    volume: volume
+
+backtest:
+  # Taille de la fenêtre glissante visible par la stratégie à l'instant t (zéro lookahead)
+  window_size: 600
+  # Horizon utilisé pour les métriques rolling (7/14/30 typiquement)
+  horizon_days: 7
+  # Frais par côté (0.0015 = 0.15%). Aller-retour = 2*fee_rate = 0.30%
+  fee_rate: 0.0015
+
+indicators:
+  # Paramètres de génération/validation des indicateurs.
+  # Même si les colonnes sont déjà présentes dans le CSV, cette section documente les paramètres attendus.
+  macd: {fast: 12, slow: 26, signal: 9}
+  # CCI: fast/medium/slow => colonnes attendues: cci_30, cci_120, cci_300 (si on garde 30/120/300)
+  cci: {fast: 30, medium: 120, slow: 300}
+  # VWMA: colonnes attendues: vwma_4, vwma_12 (si 4/12)
+  vwma: {fast: 4, medium: 12}
+  # Vortex: colonnes attendues: vi_plus, vi_minus
+  vortex: {period: 300}
+  # DMI: colonnes attendues: di_plus, di_minus, adx
+  dmi: {period: 300, adx_smoothing: 14}
+  # ATR: colonne attendue: atr_<len> (ex: atr_14)
+  atr: {len: 14}
+
+trend_filter:
+  # Filtre de tendance appliqué UNIQUEMENT à l'entrée (pas à l'exit)
+  enabled: true
+  # Valeurs possibles: none|vortex|dmi|both
+  # vortex => vi_plus/vi_minus ; dmi => di_plus/di_minus ; both => AND des deux
+  mode: dmi
+
+signals:
+  entry:
+    # Preset existant: scalping | swing_strict | swing_standard | (autres alias supportés si présents)
+    name: intraday_strict 
+    # Règle directionnelle côté moteur. Pour l'entrée:
+    # - any => on accepte LONG ou SHORT selon le signal
+    direction_rule: any
+    params:
+      # Type de confluence: instant | tranche_last
+      confluence_type: tranche_last
+      # Mode de signal: long (LOW uniquement) | short (HIGH uniquement) | both (accepte les deux)
+      mode: both
+      # Nombre minimal de séries confirmées. null => toutes les séries du preset
+      min_confirmed: 3
+      # Séries utilisées pour la confluence "extreme".
+      # Par défaut: celles du preset (signals.entry.name).
+      # - add: ajoute des colonnes en plus de celles du preset
+      # - exclude: retire des colonnes (preset ou ajoutées)
+      # Séries typiquement disponibles (si calculées dans le CSV ou via la section indicators):
+      # - close
+      # - vwma_4, vwma_12
+      # - macd_line, macd_hist
+      # - cci_30, cci_120, cci_300
+      series:
+        add: [close,macd_line,macd_hist,cci_30,cci_120,cci_300,vwma_4,vwma_12]
+        exclude: []
+      # Seuils CCI (optionnels). Si non défini, on utilise ceux du preset.
+      cci_thresholds:
+        fast: 100
+        medium: 100
+        slow: 100
+
+  exit:
+    # Preset existant utilisé pour générer un signal directionnel, puis le moteur convertit en EXIT
+    # uniquement si le signal est OPPOSÉ à la position ouverte.
+    name: scalping 
+    # Pour l'exit:
+    # - opposite_to_position => LONG sort si signal SHORT, SHORT sort si signal LONG
+    direction_rule: opposite_to_position
+    params:
+      confluence_type: tranche_last
+      mode: both
+      min_confirmed: null
+      # Séries utilisées pour la confluence "extreme".
+      # Par défaut: celles du preset (signals.exit.name).
+      # Séries typiquement disponibles (si calculées dans le CSV ou via la section indicators):
+      # - close
+      # - vwma_4, vwma_12
+      # - macd_line, macd_hist
+      # - cci_30, cci_120, cci_300
+      series:
+        add: [close,macd_line,macd_hist,cci_30,cci_120]
+        exclude: [vwma_4, vwma_12,cci_300]
+      cci_thresholds:
+        fast: 100
+        medium: 100
+        slow: 0
+
+exit_policy:
+  # Si true: on autorise la sortie par signal (selon signals.exit)
+  # Si false: la position ne peut sortir que via TP/SL (ou EOD)
+  allow_exit_signal: true 
+
+tp:
+  # Valeurs possibles: none | fixed_pct
+  # fixed_pct => nécessite tp_pct (ex: 0.01 = +1% long / -1% short)
+  mode: none #fixed_pct
+  tp_pct: 0.01
+
+sl:
+  # Valeurs possibles: none | fixed_pct | trailing_pct | atr
+  # - fixed_pct => sl_pct (ex: 0.01)
+  # - trailing_pct => trail_pct (ex: 0.01)
+  # - atr => atr_mult (distance = atr_mult * ATR à l'entrée)
+  mode: trailing_pct
+  trail_pct: 0.01
+
+output:
+  # Dossier de sortie: trades.csv, equity.csv, equity.png
+  out_dir: data/processed/backtests/example
+  # Active/désactive la génération du PNG (matplotlib)
+  png: true
