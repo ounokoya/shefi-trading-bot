@@ -56,3 +56,10 @@ Wrote: data/processed/backtests/optuna_walk_forward/optuna_trials.csv
 Wrote: data/processed/backtests/optuna_walk_forward/best_backtest_config.yaml
 Wrote: data/processed/backtests/optuna_walk_forward/best_walk_forward_folds.csv
 Wrote: data/processed/backtests/optuna_walk_forward/optuna_summary.yaml .c'est c'est pas du tout bon des theta avectresmovaus equity end sont mailleur que ceux avecbon  en equity positif et bon ration c'est pas bon peut importe tot les critere un bon theta est un equity > 0 , et plus c'est grand et bon ration c'est meilleur .  
+
+
+
+c'est possible de faire toute les combinanison de serie possible de 1 jusuqu'a n , apploquer le trade sur chacun sur chaque tf . une sorte d'espace de recherche sur période donné debu fin et classer selon les  les plus performant l'idée etand d'ajouter dd (perte total sur equity) et le max pnl négatif atteind depuis ouverture de chaque trade .. equity = somme de tout  les % de prix capté .  
+
+wahou c'est super ca, est ce qu'on peut reutiliser les csv de 2025 déja telechargé ? on peux ajouter different distance de % entre extreme précedent et stop ? valeur : 2%, 5%, 10%, 15%, 20%, 25%, 30% ? 
+
