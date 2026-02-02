@@ -69,16 +69,12 @@ Les périodes les plus courantes sont **34** et **55**.
 
 ## 📈 SIGNAL LINE (TRADINGVIEW)
 
-TradingView indique :
-- Une **13-period moving average** est typiquement utilisée comme **signal line**.
+Signal line (référence d’implémentation de ce repo):
 
-⚠️ TradingView (Help Center) ne précise pas ici le type exact (SMA vs EMA) dans le texte.
+- La signal line est calculée comme une EMA de `KO`:
+  - `signal_line = EMA(KO, 13)`
 
-### Recommandation “précision TradingView”
-- Implémenter et valider par comparaison directe avec TradingView:
-  - Variante A: `signal = EMA(KO, 13)`
-  - Variante B: `signal = SMA(KO, 13)`
-- Conserver la variante qui matche exactement la courbe TradingView sur un même OHLCV.
+Cette définition est normative pour reproduire exactement les valeurs produites par `libs/indicators/volume/klinger_oscillator_tv.py`.
 
 ---
 
@@ -97,7 +93,10 @@ TradingView indique :
 - `cm` nécessite `cm[i-1]` et parfois `dm[i-1]`.
 
 ### 2) Division par zéro
-- La formule contient `dm/cm`. Si `cm == 0`, il faut retourner `na` (ou une convention stable) et **revalider vs TradingView**.
+- La formule contient `dm/cm`.
+- Dans l’implémentation de ce repo:
+  - si `cm` est non valide (NaN/Inf) ou `cm == 0`, alors un facteur temporaire interne vaut `-2.0`.
+  - la `VF` est alors calculée normalement avec ce facteur.
 
 ### 3) Volume “base vs quote”
 Comme rappelé dans `docs/indicateurs/indicateur_precision_rules.md`:
@@ -118,21 +117,53 @@ Car TradingView utilise:
 - seed SMA
 - lazy seeding / reseeding après invalid values
 
+Règles exactes utilisées par les EMA de ce repo (impact direct sur Klinger):
+
+- Pour une EMA de période `p`, la première valeur possible est à l’index `p-1`.
+- Seed: la valeur initiale est la SMA sur les `p` premières valeurs valides de la fenêtre.
+- Si une valeur source ou une EMA précédente est non valide (NaN/Inf), l’EMA devient non valide et l’algorithme repasse en mode “non seedé” jusqu’à pouvoir reseeder.
+
 ---
 
-## 🧩 FONCTIONS PINE SCRIPT À UTILISER (IMPLÉMENTATION MANUELLE)
+## 🧩 Spécification d’implémentation (reproductible, sans ambiguïté)
 
-TradingView fournit le KO comme indicateur, mais pour une reproduction exacte dans Pine, les briques nécessaires sont :
+Entrées:
 
-- `ta.ema(src, length)`
-- `ta.sma(src, length)` (si la signal line est SMA)
+- Séries de même longueur `n`: `high[i]`, `low[i]`, `close[i]`, `volume[i]`.
 
-Données:
-- `high`, `low`, `close`, `volume`
+Pré-conditions (invalides):
 
-Variables d’état:
-- `cm` doit être maintenu d’un bar à l’autre (via `var float cm = na`)
-- `trend` est défini par la comparaison entre la somme `(H+L+C)` courante et précédente.
+- Une valeur est dite “non valide” si elle est `NaN` ou `Inf`.
+- Si à un index `i` une des valeurs nécessaires à l’étape courante est non valide, alors les valeurs intermédiaires (`dm`, `cm`, `vf`) et les sorties (`KO`, `signal_line`) sont non valides à cet index.
+
+Définitions:
+
+- `dm[i] = high[i] - low[i]`.
+- `trend[i]`:
+  - calculer `s0 = high[i] + low[i] + close[i]` et `s1 = high[i-1] + low[i-1] + close[i-1]`.
+  - `trend[i] = +1` si `s0 > s1`, sinon `trend[i] = -1`.
+- `cm[i]` (cumulative measurement):
+  - soit `prev_trend = trend[i-1]`.
+  - soit `prev_dm = dm[i-1]`.
+  - soit `prev_cm = cm[i-1]`.
+  - si `prev_trend` n’est pas défini (cas initial) alors il est remplacé par `trend[i]`.
+  - si `prev_dm` n’est pas défini alors il est remplacé par `dm[i]`.
+  - si `prev_cm` n’est pas défini alors il est remplacé par `dm[i]`.
+  - si `trend[i] == prev_trend` alors `cm[i] = prev_cm + dm[i]`, sinon `cm[i] = prev_dm + dm[i]`.
+- Facteur VF:
+  - si `cm[i]` est non valide ou `cm[i] == 0`:
+    - `temp = -2.0`
+  - sinon:
+    - `raw = 2 * ((dm[i] / cm[i]) - 1)`
+    - si `vf_use_abs_temp == true` alors `temp = abs(raw)`, sinon `temp = raw`.
+  - `vf[i] = volume[i] * trend[i] * temp * 100`.
+
+Sorties:
+
+- `ema_fast = EMA(vf, fast)`
+- `ema_slow = EMA(vf, slow)`
+- `KO[i] = ema_fast[i] - ema_slow[i]` quand les 2 sont valides.
+- `signal_line = EMA(KO, signal)`.
 
 ---
 

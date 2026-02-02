@@ -1,14 +1,72 @@
 # 🔍 Stochastic TradingView - Recherche d'Implémentation Précise
 
 ## 📋 Table des Matières
-1. [Formule Officielle TradingView](#formule-officielle-tradingview)
-2. [Calculs Détaillés](#calculs-détaillés)
-3. [Implémentations Pine Script](#implémentations-pine-script)
+1. [Spécification d’implémentation (reproductible, sans ambiguïté)](#-spécification-dimplémentation-reproductible-sans-ambiguïté)
+2. [Formule Officielle TradingView](#formule-officielle-tradingview)
+3. [Calculs Détaillés](#calculs-détaillés)
 4. [Astuces et Optimisations](#astuces-et-optimisations)
 5. [Cas d'Usage Avancés](#cas-dusage-avancés)
 6. [Sources et Références](#sources-et-références)
 
 ---
+
+## 🧩 Spécification d’implémentation (reproductible, sans ambiguïté)
+
+Cette section est normative pour ce repo: elle décrit exactement la logique utilisée pour produire `stoch_k` et `stoch_d` dans:
+
+ Entrées:
+
+- Séries de même longueur `n`:
+  - `high[i]`, `low[i]`, `close[i]`
+- Paramètres:
+  - `k_period` (entier)
+  - `k_smooth_period` (entier)
+  - `d_period` (entier)
+
+ Normalisation des entrées:
+
+- Les valeurs sont interprétées comme des nombres réels.
+- Toute valeur non convertible numériquement est remplacée par une valeur non valide (`NaN`).
+
+ Étape 1 — Rolling lowest low / highest high:
+
+- À chaque index `i`, si la fenêtre `j ∈ [i-k_period+1, i]` ne contient pas exactement `k_period` valeurs valides:
+  - `ll[i]` et `hh[i]` sont non valides.
+- Sinon:
+  - `ll[i] = min(low[j])` pour `j ∈ [i-k_period+1, i]`.
+  - `hh[i] = max(high[j])` pour `j ∈ [i-k_period+1, i]`.
+
+ Étape 2 — %K raw:
+
+- `denom[i] = hh[i] - ll[i]`.
+- `numer[i] = close[i] - ll[i]`.
+- Si `denom[i]` est non valide ou `denom[i] == 0.0`:
+  - `k_raw[i]` est non valide.
+- Sinon:
+  - `k_raw[i] = 100.0 × (numer[i] / denom[i])`.
+
+Conséquence importante:
+
+- Si `denom[i] == 0.0` (range nul), l’implémentation produit une valeur non valide à cet index.
+- La valeur “50” n’est pas utilisée dans cette implémentation.
+
+ Étape 3 — Lissage %K:
+
+- Soit `ks = k_smooth_period`.
+- Si `ks <= 1`:
+  - `k[i] = k_raw[i]`.
+- Sinon:
+  - `k[i]` est défini uniquement si la fenêtre `j ∈ [i-ks+1, i]` contient exactement `ks` valeurs valides.
+  - Dans ce cas, `k[i] = (1/ks) × Σ k_raw[j]` pour `j ∈ [i-ks+1, i]`.
+
+Étape 4 — %D:
+
+- `d[i]` est défini uniquement si les `d_period` valeurs `k[j]` de `j ∈ [i-d_period+1, i]` sont toutes valides.
+- Dans ce cas, `d[i] = (1/d_period) × Σ k[j]` pour `j ∈ [i-d_period+1, i]`.
+
+Sorties:
+
+- La fonction retourne `(k, d)`.
 
 ## 🎯 Formule Officielle TradingView
 
@@ -18,19 +76,13 @@ Le **Stochastic Oscillator** est un oscillateur de momentum borné qui compare l
 ### Formules Mathématiques Complètes
 
 #### 1. %K (Fast Stochastic)
-```
-%K = 100 × (Current Close - Lowest Low) / (Highest High - Lowest Low)
-```
+%K = 100 × (Close - Lowest Low) / (Highest High - Lowest Low)
 
 #### 2. %K Smoothed (Slow Stochastic)
-```
 %K Smoothed = SMA(%K, smoothK)
-```
 
 #### 3. %D (Signal Line)
-```
 %D = SMA(%K Smoothed, periodD)
-```
 
 ### Paramètres Standards TradingView
 - **PeriodK** : 14 périodes
@@ -44,246 +96,66 @@ Le **Stochastic Oscillator** est un oscillateur de momentum borné qui compare l
 ### Processus de Calcul Complet
 
 1. **Calculer Highest High et Lowest Low**
-   ```
-   Highest High = MAX(High[i], High[i-1], ..., High[i-periodK+1])
-   Lowest Low = MIN(Low[i], Low[i-1], ..., Low[i-periodK+1])
-   ```
+   - Highest High = maximum de `High` sur la fenêtre `periodK`.
+   - Lowest Low = minimum de `Low` sur la fenêtre `periodK`.
 
 2. **Calculer %K Brut**
-   ```
-   %K Raw = 100 × (Close[i] - Lowest Low) / (Highest High - Lowest Low)
-   ```
+   - %K Raw = 100 × (Close - Lowest Low) / (Highest High - Lowest Low).
 
 3. **Lisser %K**
-   ```
-   %K Smoothed = SMA(%K Raw, smoothK)
-   ```
+   - %K Smoothed = SMA(%K Raw, smoothK).
 
 4. **Calculer %D**
-   ```
-   %D = SMA(%K Smoothed, periodD)
-   ```
+   - %D = SMA(%K Smoothed, periodD).
 
 ### Cas Particulier : Division par Zéro
 Si `Highest High - Lowest Low = 0` (pas de mouvement) :
-- `%K Raw = 50` (valeur neutre)
-- `%K Smoothed = 50`
-- `%D = 50`
-
----
-
-## 📝 Implémentations Pine Script
-
-### 1. Version Standard TradingView
-```pine
-//@version=5
-indicator("Stochastic Oscillator", format=format.volume, precision=2)
-
-periodK = input.int(14, title="K Length", minval=1)
-smoothK = input.int(3, title="K Smoothing", minval=1)
-periodD = input.int(3, title="D Length", minval=1)
-
-[k, d] = ta.stoch(close, high, low, periodK, smoothK, periodD)
-
-plot(k, title="%K", color=color.blue)
-plot(d, title="%D", color=color.orange, linewidth=2)
-
-hline(80, "Overbought", color=color.red, linestyle=hline.style_dashed)
-hline(20, "Oversold", color=color.green, linestyle=hline.style_dashed)
-hline(50, "Middle", color=color.gray, linestyle=hline.style_dotted)
-```
-
-### 2. Implémentation Manuelle Complète
-```pine
-//@version=5
-indicator("Manual Stochastic", format=format.volume, precision=2)
-
-periodK = input.int(14, title="K Length")
-smoothK = input.int(3, title="K Smoothing")
-periodD = input.int(3, title="D Length")
-
-// Calcul %K brut
-highestHigh = ta.highest(high, periodK)
-lowestLow = ta.lowest(low, periodK)
-kRaw = 100 * (close - lowestLow) / (highestHigh - lowestLow)
-
-// Lisser %K
-kSmoothed = ta.sma(kRaw, smoothK)
-
-// Calcul %D
-d = ta.sma(kSmoothed, periodD)
-
-// Affichage
-plot(kSmoothed, title="%K", color=color.blue, linewidth=2)
-plot(d, title="%D", color=color.orange, linewidth=2)
-
-hline(80, "Overbought", color.red)
-hline(20, "Oversold", color.green)
-```
-
-### 3. Stochastic avec Signaux Avancés
-```pine
-//@version=5
-indicator("Stochastic Trading Signals", format=format.volume, precision=2)
-
-periodK = input.int(14, title="K Length")
-smoothK = input.int(3, title="K Smoothing")
-periodD = input.int(3, title="D Length")
-
-[k, d] = ta.stoch(close, high, low, periodK, smoothK, periodD)
-
-// Signaux de croisement
-bullishCross = ta.crossover(k, d)
-bearishCross = ta.crossunder(k, d)
-
-// Signaux de surachat/survente
-overbought = k > 80
-oversold = k < 20
-
-// Divergences
-bullishDiv = low < low[5] and k > k[5] and oversold
-bearishDiv = high > high[5] and k < k[5] and overbought
-
-// Affichage
-plot(k, "%K", color.blue)
-plot(d, "%D", color.orange, linewidth=2)
-
-plotshape(bullishCross, title="Buy Signal", location=location.bottom,
-          style=shape.labelup, color=color.green, text="BUY")
-plotshape(bearishCross, title="Sell Signal", location=location.top,
-          style=shape.labeldown, color=color.red, text="SELL")
-```
+- Dans ce repo, la valeur est considérée non calculable et la sortie est non valide à cet index.
 
 ---
 
 ## ⚡ Astuces et Optimisations
 
 ### 1. Paramètres Optimisés par Style de Trading
-```pine
-// Scalping (très sensible)
-scalpingStoch = ta.stoch(close, high, low, 5, 2, 2)
-
-// Day Trading (standard)
-dayStoch = ta.stoch(close, high, low, 14, 3, 3)
-
-// Swing Trading (plus stable)
-swingStoch = ta.stoch(close, high, low, 21, 5, 5)
-
-// Position Trading (très stable)
-positionStoch = ta.stoch(close, high, low, 30, 10, 10)
-```
+- Utiliser des paramètres adaptés au style de trading.
 
 ### 2. Sources Alternatives pour Plus de Précision
-```pine
-// Close (standard)
-src1 = close
-stoch1 = ta.stoch(src1, high, low, 14, 3, 3)
-
-// HLC3 (plus stable)
-src2 = hlc3
-stoch2 = ta.stoch(src2, high, low, 14, 3, 3)
-
-// HL2 (moins de bruit)
-src3 = hl2
-stoch3 = ta.stoch(src3, high, low, 14, 3, 3)
-
-// Weighted Close (plus de poids sur close)
-src4 = (high + low + 2 * close) / 4
-stoch4 = ta.stoch(src4, high, low, 14, 3, 3)
-```
+- Utiliser des sources alternatives pour plus de précision.
 
 ### 3. Niveaux Dynamiques
-```pine
-// Niveaux adaptatifs à la volatilité
-atr = ta.atr(14)
-volatilityFactor = atr / close * 100
-
-dynamicOB = volatilityFactor > 2 ? 85 : 80
-dynamicOS = volatilityFactor < 1 ? 15 : 20
-
-plot(dynamicOB, "Dynamic Overbought", color=color.red)
-plot(dynamicOS, "Dynamic Oversold", color=color.green)
-```
+- Utiliser des niveaux dynamiques pour plus de flexibilité.
 
 ### 4. Lissage Additionnel
-```pine
-// Réduire le bruit avec lissage supplémentaire
-[k, d] = ta.stoch(close, high, low, 14, 3, 3)
-
-smoothedK = ta.sma(k, 2)
-smoothedD = ta.sma(d, 2)
-
-plot(smoothedK, "Smoothed %K", color.blue, linewidth=2)
-plot(smoothedD, "Smoothed %D", color.orange, linewidth=2)
-```
+- Utiliser un lissage additionnel pour réduire le bruit.
 
 ---
 
 ## 📊 Cas d'Usage Avancés
 
 ### 1. Stochastic Multi-Timeframe
-```pine
-// Stochastic daily sur chart intraday
-dailyStoch = request.security(syminfo.tickerid, "1D", ta.stoch(close, high, low, 14, 3, 3))
-weeklyStoch = request.security(syminfo.tickerid, "1W", ta.stoch(close, high, low, 14, 3, 3))
-
-plot(dailyStoch[0], "Daily %K", color=color.orange, linewidth=2)
-plot(dailyStoch[1], "Daily %D", color=color.red, linewidth=2)
-plot(weeklyStoch[0], "Weekly %K", color=color.blue, linewidth=3)
-```
+- Utiliser le Stochastic sur plusieurs timeframes.
 
 ### 2. Stochastic avec Zones de Momentum
-```pine
-[k, d] = ta.stoch(close, high, low, 14, 3, 3)
-
-// Zones de momentum extrême
-extremeOB = k > 90
-strongOB = k > 80 and k <= 90
-neutral = k >= 20 and k <= 80
-strongOS = k >= 10 and k < 20
-extremeOS = k < 10
-
-bgcolor(extremeOB ? color.new(color.red, 90) : na)
-bgcolor(strongOB ? color.new(color.orange, 90) : na)
-bgcolor(neutral ? color.new(color.gray, 95) : na)
-bgcolor(strongOS ? color.new(color.green, 90) : na)
-bgcolor(extremeOS ? color.new(color.lime, 90) : na)
-```
+- Utiliser des zones de momentum pour plus de précision.
 
 ### 3. Système Stochastic + Trend Filter
-```pine
-[k, d] = ta.stoch(close, high, low, 14, 3, 3)
-
-// Filtre de tendance avec EMA
-ema200 = ta.ema(close, 200)
-isUptrend = close > ema200
-isDowntrend = close < ema200
-
-// Signaux filtrés par tendance
-bullishSignal = ta.crossover(k, d) and k < 80 and isUptrend
-bearishSignal = ta.crossunder(k, d) and k > 20 and isDowntrend
-
-plotshape(bullishSignal, title="Trend Buy", location=location.bottom,
-          style=shape.labelup, color=color.green, text="BUY")
-plotshape(bearishSignal, title="Trend Sell", location=location.top,
-          style=shape.labeldown, color=color.red, text="SELL")
-```
+- Utiliser un filtre de tendance pour plus de précision.
 
 ---
 
 ## 🎯 Points Clés à Retenir
 
 ### ✅ Avantages du Stochastic TradingView
-- **Borné 0-100** : Niveaux clairs de surachat/survente
-- **Réactif** : Répond rapidement aux changements de prix
-- **Universel** : Fonctionne sur tous les marchés/timeframes
-- **Divergences** : Excellent pour détecter les retournements
+- Borné 0-100 : Niveaux clairs de surachat/survente
+- Réactif : Répond rapidement aux changements de prix
+- Universel : Fonctionne sur tous les marchés/timeframes
+- Divergences : Excellent pour détecter les retournements
 
 ### ⚠️ Points d'Attention
-- **False signals** : En marché sans tendance
-- **Surachat prolongé** : Peut rester extrême en trend fort
-- **Sensibilité** : Trop réactif sur petites périodes
-- **Lissage nécessaire** : %K brut très bruyant
+- False signals : En marché sans tendance
+- Surachat prolongé : Peut rester extrême en trend fort
+- Sensibilité : Trop réactif sur petites périodes
+- Lissage nécessaire : %K brut très bruyant
 
 ### 🚀 Meilleures Pratiques
 - Utiliser 14/3/3 comme paramètres par défaut
@@ -321,84 +193,6 @@ plotshape(bearishSignal, title="Trend Sell", location=location.top,
 5. **George Lane (1950s)** - Créateur original du Stochastic Oscillator
    - "Momentum always changes direction before price"
    - Référence fondamentale pour la théorie
-
----
-
-## 📋 Implémentation Go Référence
-
-```go
-// Implémentation Stochastic compatible TradingView
-type Stochastic struct {
-    periodK  int
-    smoothK  int
-    periodD  int
-}
-
-func NewStochastic(periodK, smoothK, periodD int) *Stochastic {
-    return &Stochastic{
-        periodK: periodK,
-        smoothK: smoothK,
-        periodD: periodD,
-    }
-}
-
-func (stoch *Stochastic) Calculate(h, l, c []float64) (k, d []float64) {
-    n := len(h)
-    k = make([]float64, n)
-    d = make([]float64, n)
-    
-    // Calculer %K brut
-    kRaw := make([]float64, n)
-    for i := stoch.periodK - 1; i < n; i++ {
-        highestHigh := h[i]
-        lowestLow := l[i]
-        
-        // Trouver le highest high et lowest low sur la période
-        for j := i - stoch.periodK + 1; j <= i; j++ {
-            if h[j] > highestHigh {
-                highestHigh = h[j]
-            }
-            if l[j] < lowestLow {
-                lowestLow = l[j]
-            }
-        }
-        
-        // Calculer %K brut
-        if math.Abs(highestHigh-lowestLow) < 1e-10 {
-            kRaw[i] = 50.0 // Éviter division par zéro
-        } else {
-            kRaw[i] = 100.0 * (c[i] - lowestLow) / (highestHigh - lowestLow)
-        }
-    }
-    
-    // Lisser %K
-    k = calculateSMA(kRaw, stoch.smoothK)
-    
-    // Calculer %D
-    d = calculateSMA(k, stoch.periodD)
-    
-    return k, d
-}
-
-func calculateSMA(values []float64, period int) []float64 {
-    n := len(values)
-    sma := make([]float64, n)
-    
-    for i := 0; i < n; i++ {
-        if i < period-1 {
-            sma[i] = math.NaN()
-        } else {
-            sum := 0.0
-            for j := i - period + 1; j <= i; j++ {
-                sum += values[j]
-            }
-            sma[i] = sum / float64(period)
-        }
-    }
-    
-    return sma
-}
-```
 
 ---
 

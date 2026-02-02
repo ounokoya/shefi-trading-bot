@@ -1,14 +1,62 @@
 # 🔍 MFI TradingView - Recherche d'Implémentation Précise
-
-## 📋 Table des Matières
-1. [Formule Officielle TradingView](#formule-officielle-tradingview)
-2. [Calculs Détaillés](#calculs-détaillés)
-3. [Implémentations Pine Script](#implémentations-pine-script)
-4. [Astuces et Optimisations](#astuces-et-optimisations)
-5. [Cas d'Usage Avancés](#cas-dusage-avancés)
-6. [Sources et Références](#sources-et-références)
+ 
+ ## 📋 Table des Matières
+ 1. [Spécification d’implémentation (reproductible, sans ambiguïté)](#-spécification-dimplémentation-reproductible-sans-ambiguïté)
+ 2. [Formule Officielle TradingView](#formule-officielle-tradingview)
+ 3. [Calculs Détaillés](#calculs-détaillés)
+ 4. [Astuces et Optimisations](#astuces-et-optimisations)
+ 5. [Cas d'Usage Avancés](#cas-dusage-avancés)
+ 6. [Sources et Références](#sources-et-références)
 
 ---
+
+## 🧩 Spécification d’implémentation (reproductible, sans ambiguïté)
+
+Cette section est normative pour ce repo (elle décrit exactement la logique implémentée dans `libs/indicators/volume/mfi_tv.py`).
+
+Entrées:
+
+- Séries de même longueur `n`: `high[i]`, `low[i]`, `close[i]`, `volume[i]`.
+- Paramètre `period` (entier).
+
+Règles de validité / pré-conditions:
+
+- Si les longueurs diffèrent: l’implémentation lève une exception.
+- Si `period <= 0` ou `n == 0`: la sortie est une liste de longueur `n` remplie de valeurs non valides.
+- L’implémentation ne filtre pas explicitement `NaN/Inf` dans les entrées. Par conséquent:
+  - une valeur non valide peut se propager aux calculs via les multiplications/sommes,
+  - et rendre `mfi[i]` non valide par propagation arithmétique.
+
+Étape 1 — Typical Price et Raw Money Flow:
+
+- `tp[i] = (high[i] + low[i] + close[i]) / 3`
+- `raw_mf[i] = tp[i] * volume[i]`
+
+Étape 2 — Positive/Negative flows:
+
+- `pos[0] = 0.0`, `neg[0] = 0.0`
+- Pour `i >= 1`:
+  - si `tp[i] > tp[i-1]`:
+    - `pos[i] = raw_mf[i]`, `neg[i] = 0.0`
+  - sinon si `tp[i] < tp[i-1]`:
+    - `pos[i] = 0.0`, `neg[i] = raw_mf[i]`
+  - sinon:
+    - `pos[i] = 0.0`, `neg[i] = 0.0`
+
+Étape 3 — Sommes glissantes et MFI:
+
+- Pour les index strictement avant `period`, `mfi[i]` reste non valide.
+- L’implémentation commence à produire des valeurs à partir de `i = period`:
+  - fenêtre: `j ∈ [i - period + 1, i]` (soit exactement `period` valeurs)
+  - `sum_pos = Σ pos[j]`
+  - `sum_neg = Σ neg[j]`
+  - calcul:
+    - si `sum_pos > 0` et `sum_neg == 0` => `mfi[i] = 100.0`
+    - sinon si `sum_pos == 0` et `sum_neg > 0` => `mfi[i] = 0.0`
+    - sinon si `sum_pos == 0` et `sum_neg == 0` => `mfi[i] = 50.0`
+    - sinon:
+      - `ratio = sum_pos / sum_neg`
+      - `mfi[i] = 100.0 - (100.0 / (1.0 + ratio))`
 
 ## 🎯 Formule Officielle TradingView
 
@@ -16,34 +64,24 @@
 Le **Money Flow Index (MFI)** est un oscillateur de momentum qui mesure la pression d'achat et de vente en analysant à la fois le prix et le volume. Il est similaire au RSI mais avec l'ajout du volume.
 
 ### Formule Mathématique Complète
-```
 MFI = 100 - (100 / (1 + Money Flow Ratio))
-```
 
 ### Étapes de Calcul (4 étapes obligatoires)
 
 #### Étape 1 - Typical Price (TP)
-```
 TP = (High + Low + Close) / 3
-```
 
 #### Étape 2 - Raw Money Flow (RMF)
-```
 RMF = TP × Volume
-```
 
 #### Étape 3 - Money Flow Ratio
-```
 Money Flow Ratio = (Positive Money Flow) / (Negative Money Flow)
-```
 
 - **Positive Money Flow** : Somme des RMF des périodes où TP > TP précédent
 - **Negative Money Flow** : Somme des RMF des périodes où TP < TP précédent
 
 #### Étape 4 - Money Flow Index
-```
 MFI = 100 - (100 / (1 + Money Flow Ratio))
-```
 
 ---
 
@@ -52,167 +90,42 @@ MFI = 100 - (100 / (1 + Money Flow Ratio))
 ### Processus Complet pour Période 14
 
 1. **Calculer TP pour chaque bougie**
-   ```
-   TP[i] = (High[i] + Low[i] + Close[i]) / 3
-   ```
+    - TP[i] = (High[i] + Low[i] + Close[i]) / 3
 
 2. **Calculer RMF pour chaque bougie**
-   ```
-   RMF[i] = TP[i] × Volume[i]
-   ```
+    - RMF[i] = TP[i] × Volume[i]
 
 3. **Classifier le flux d'argent**
-   ```
-   Si TP[i] > TP[i-1] : Positive Flow = RMF[i], Negative Flow = 0
-   Si TP[i] < TP[i-1] : Negative Flow = RMF[i], Positive Flow = 0
-   Si TP[i] = TP[i-1] : Positive Flow = 0, Negative Flow = 0
-   ```
+    - Si TP[i] > TP[i-1]:
+      - Positive Flow = RMF[i], Negative Flow = 0
+    - Si TP[i] < TP[i-1]:
+      - Positive Flow = 0, Negative Flow = RMF[i]
+    - Si TP[i] = TP[i-1]:
+      - Positive Flow = 0, Negative Flow = 0
 
-4. **Calculer les sommes sur 14 périodes**
-   ```
-   SumPositive = Σ Positive Flow[i] pour i = 0 à 13
-   SumNegative = Σ Negative Flow[i] pour i = 0 à 13
-   ```
+4. **Calculer les sommes sur `period` périodes**
+    - À chaque index `i`, utiliser une fenêtre de `period` éléments.
+    - SumPositive = Σ PositiveFlow[j] sur la fenêtre.
+    - SumNegative = Σ NegativeFlow[j] sur la fenêtre.
 
 5. **Calculer le ratio final**
-   ```
-   MFRatio = SumPositive / SumNegative
-   MFI = 100 - (100 / (1 + MFRatio))
-   ```
-
----
-
-## 📝 Implémentations Pine Script
-
-### 1. Version Standard TradingView
-```pine
-//@version=5
-indicator("Money Flow Index", format=format.volume, precision=2)
-
-length = input.int(14, title="Length", minval=1)
-src = input(hlc3, title="Source")
-
-mfiValue = ta.mfi(src, length)
-
-plot(mfiValue, title="MFI", color=color.purple)
-hline(80, "Overbought", color=color.red, linestyle=hline.style_dashed)
-hline(20, "Oversold", color=color.green, linestyle=hline.style_dashed)
-hline(50, "Middle", color=color.gray, linestyle=hline.style_dotted)
-```
-
-### 2. Implémentation Manuelle Complète
-```pine
-//@version=5
-indicator("Manual MFI", format=format.volume, precision=2)
-
-length = input.int(14, title="Length")
-src = input(hlc3, title="Source")
-
-// Typical Price
-tp = src
-
-// Raw Money Flow
-rmf = tp * volume
-
-// Positive/Negative Money Flow
-positiveFlow = tp > tp[1] ? rmf : 0
-negativeFlow = tp < tp[1] ? rmf : 0
-
-// Sum Money Flow over period
-sumPositive = ta.sum(positiveFlow, length)
-sumNegative = ta.sum(negativeFlow, length)
-
-// Money Flow Ratio
-mfr = sumNegative != 0 ? sumPositive / sumNegative : 0
-
-// Money Flow Index
-mfi = 100 - (100 / (1 + mfr))
-
-plot(mfi, title="MFI", color=color.purple, linewidth=2)
-```
-
-### 3. MFI avec Signaux Avancés
-```pine
-//@version=5
-indicator("MFI Trading Signals", format=format.volume, precision=2)
-
-length = input.int(14, title="Length")
-obLevel = input.int(80, title="Overbought Level")
-osLevel = input.int(20, title="Oversold Level")
-
-src = hlc3
-mfiValue = ta.mfi(src, length)
-
-// Signaux de surachat/survente
-overbought = mfiValue > obLevel
-oversold = mfiValue < osLevel
-
-// Divergences
-bullishDiv = low < low[5] and mfiValue > mfiValue[5] and oversold
-bearishDiv = high > high[5] and mfiValue < mfiValue[5] and overbought
-
-// Affichage
-plot(mfiValue, title="MFI", color=color.purple, linewidth=2)
-plot(obLevel, "Overbought", color=color.red)
-plot(osLevel, "Oversold", color.green)
-
-plotshape(bullishDiv, title="Bullish Divergence", location=location.bottom,
-          style=shape.labelup, color=color.green, text="BULL DIV")
-plotshape(bearishDiv, title="Bearish Divergence", location=location.top,
-          style=shape.labeldown, color=color.red, text="BEAR DIV")
-```
+    - MFRatio = SumPositive / SumNegative
+    - MFI = 100 - (100 / (1 + MFRatio))
 
 ---
 
 ## ⚡ Astuces et Optimisations
 
 ### 1. Sources Alternatives pour Plus de Précision
-```pine
-// HLC3 (standard) - plus stable
-src1 = hlc3
-
-// OHLC4 - inclut l'open
-src2 = ohlc4
-
-// HL2 - ignore les extrêmes
-src3 = hl2
-
-// Weighted Close - plus de poids sur le close
-src4 = (high + low + 2 * close) / 4
-
-mfi1 = ta.mfi(src1, 14)
-mfi2 = ta.mfi(src2, 14)
-mfi3 = ta.mfi(src3, 14)
-mfi4 = ta.mfi(src4, 14)
-```
+- Selon les plateformes, la “source” peut varier (ex: HLC3, OHLC4, HL2, weighted close).
+- Dans ce repo, la définition normative utilise TP = (High + Low + Close) / 3.
 
 ### 2. Périodes Optimisées par Style
-```pine
-// Scalping (très sensible)
-scalpingMFI = ta.mfi(hlc3, 7)
-
-// Day Trading
-dayMFI = ta.mfi(hlc3, 14)
-
-// Swing Trading
-swingMFI = ta.mfi(hlc3, 20)
-
-// Position Trading
-positionMFI = ta.mfi(hlc3, 30)
-```
+- Le paramètre `period` contrôle le compromis “réactivité vs stabilité”.
+- Exemples usuels (indicatifs): 7 (court), 14 (standard), 20-30 (plus stable).
 
 ### 3. Niveaux Dynamiques
-```pine
-// Niveaux adaptatifs à la volatilité
-atr = ta.atr(14)
-volatilityFactor = atr / close * 100
-
-dynamicOB = volatilityFactor > 2 ? 85 : 80
-dynamicOS = volatilityFactor < 1 ? 15 : 20
-
-plot(dynamicOB, "Dynamic Overbought", color=color.red)
-plot(dynamicOS, "Dynamic Oversold", color=color.green)
-```
+- Variante: adapter les seuils de surachat/survente (ex: 80/20) en fonction de la volatilité.
 
 **Note importante** : Le MFI standard TradingView n'inclut aucun filtre de volume. La formule officielle utilise uniquement les sommes glissantes de Positive/Negative Money Flow sans lissage additionnel.
 
@@ -221,41 +134,13 @@ plot(dynamicOS, "Dynamic Oversold", color=color.green)
 ## 📊 Cas d'Usage Avancés
 
 ### 1. MFI Multi-Timeframe
-```pine
-// MFI daily sur chart intraday
-dailyMFI = request.security(syminfo.tickerid, "1D", ta.mfi(hlc3, 14))
-weeklyMFI = request.security(syminfo.tickerid, "1W", ta.mfi(hlc3, 14))
-
-plot(dailyMFI, "Daily MFI", color=color.orange, linewidth=2)
-plot(weeklyMFI, "Weekly MFI", color=color.blue, linewidth=3)
-```
+- Variante classique: calculer le MFI sur un timeframe supérieur, puis aligner et “reporter” la série sur un timeframe inférieur.
 
 ### 2. Système MFI + Price Action
-```pine
-// MFI avec confirmation structurelle
-mfiValue = ta.mfi(hlc3, 14)
-
-// Patterns de bougies
-doji = math.abs(close - open) < (high - low) * 0.1
-hammer = low < ta.lowest(low, 3)[1] and close > open
-
-// Signaux combinés
-buySignal = mfiValue < 20 and hammer
-sellSignal = mfiValue > 80 and doji
-```
+- Variante: utiliser le MFI comme filtre (ex: MFI < 20 / MFI > 80) puis confirmer avec des règles de price action.
 
 ### 3. MFI avec Zones de Accumulation/Distribution
-```pine
-// Détection zones accumulation
-mfiValue = ta.mfi(hlc3, 14)
-priceChange = close - close[1]
-
-// Accumulation : MFI bas mais prix stable
-accumulation = mfiValue < 30 and math.abs(priceChange) < ta.atr(14) * 0.2
-
-// Distribution : MFI haut mais prix stable
-distribution = mfiValue > 70 and math.abs(priceChange) < ta.atr(14) * 0.2
-```
+- Variante: rechercher des zones “accumulation/distribution” via un MFI extrême et un prix relativement stable.
 
 ---
 
@@ -314,57 +199,8 @@ distribution = mfiValue > 70 and math.abs(priceChange) < ta.atr(14) * 0.2
 
 ## 📋 Implémentation Go Référence
 
-```go
-// Implémentation MFI compatible TradingView
-type MFI struct {
-    period int
-}
-
-func NewMFI(period int) *MFI {
-    return &MFI{period: period}
-}
-
-func (mfi *MFI) Calculate(h, l, c, v []float64) []float64 {
-    n := len(h)
-    result := make([]float64, n)
-    
-    // Calculer Typical Price
-    tp := make([]float64, n)
-    for i := 0; i < n; i++ {
-        tp[i] = (h[i] + l[i] + c[i]) / 3.0
-    }
-    
-    // Calculer Raw Money Flow
-    rmf := make([]float64, n)
-    for i := 0; i < n; i++ {
-        rmf[i] = tp[i] * v[i]
-    }
-    
-    for i := mfi.period; i < n; i++ {
-        var positiveFlow, negativeFlow float64
-        
-        // Calculer les flux sur la période
-        for j := i - mfi.period + 1; j <= i; j++ {
-            if j > 0 && tp[j] > tp[j-1] {
-                positiveFlow += rmf[j]
-            } else if j > 0 && tp[j] < tp[j-1] {
-                negativeFlow += rmf[j]
-            }
-        }
-        
-        // Calculer MFI
-        if negativeFlow != 0 {
-            moneyFlowRatio := positiveFlow / negativeFlow
-            result[i] = 100 - (100 / (1 + moneyFlowRatio))
-        } else {
-            result[i] = 100
-        }
-    }
-    
-    return result
-}
-```
+Cette documentation ne contient volontairement aucun extrait de code. La section normative du repo (au début du document) définit complètement le calcul de manière reproductible.
 
 ---
 
-*Document créé le 03/11/2025 - Basé sur recherche TradingView et documentation officielle*
+ *Document créé le 03/11/2025 - Basé sur recherche TradingView et documentation officielle*

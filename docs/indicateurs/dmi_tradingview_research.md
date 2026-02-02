@@ -10,6 +10,81 @@
 
 ---
 
+## 🧩 Spécification d’implémentation (reproductible, sans ambiguïté)
+
+Cette section décrit la logique utilisée par l’implémentation de référence du repo:
+
+- `libs/indicators/momentum/dmi_tv.py` (DMI/ADX)
+- `libs/indicators/moving_averages/rma_tv.py` (RMA TradingView / Wilder smoothing)
+
+Entrées:
+
+- Séries de même longueur `n`: `high[i]`, `low[i]`, `close[i]`.
+- Paramètres:
+  - `period` (entier `> 0`) = longueur DI.
+  - `adx_smoothing` (entier `> 0` ou `None`). Si `None`, l’implémentation utilise `adx_period = period`.
+
+Règles de validité:
+
+- Une valeur est dite “non valide” si elle est `NaN` ou `Inf`.
+- Si `period <= 0` ou `period > n`, l’implémentation retourne 3 listes de longueur `n` remplies de valeurs non valides.
+- Si `adx_period <= 0` ou `adx_period > n`, l’implémentation retourne 3 listes de longueur `n` remplies de valeurs non valides.
+
+Étape 1 — True Range (`tr`):
+
+- `tr[0] = high[0] - low[0]`.
+- Pour `i >= 1`:
+  - `hl = high[i] - low[i]`
+  - `hc = abs(high[i] - close[i-1])`
+  - `lc = abs(low[i] - close[i-1])`
+  - `tr[i] = max(hl, hc, lc)`
+
+Étape 2 — Directional Movement:
+
+- Initialisation:
+  - `plus_dm[0] = 0.0`
+  - `minus_dm[0] = 0.0`
+- Pour `i >= 1`:
+  - `up_move = high[i] - high[i-1]`
+  - `down_move = low[i-1] - low[i]`
+  - `plus_dm[i] = up_move` si `up_move > down_move` et `up_move > 0`, sinon `0.0`
+  - `minus_dm[i] = down_move` si `down_move > up_move` et `down_move > 0`, sinon `0.0`
+
+Étape 3 — Lissage (Wilder/RMA):
+
+- `tr_smooth = RMA_TV(tr, period)`
+- `plus_dm_smooth = RMA_TV(plus_dm, period)`
+- `minus_dm_smooth = RMA_TV(minus_dm, period)`
+
+Étape 4 — +DI / -DI:
+
+- Pour chaque index `i`:
+  - Si `tr_smooth[i]` est valide et `tr_smooth[i] != 0`:
+    - `plus_di[i] = (plus_dm_smooth[i] / tr_smooth[i]) * 100`
+    - `minus_di[i] = (minus_dm_smooth[i] / tr_smooth[i]) * 100`
+  - Sinon:
+    - `plus_di[i]` et `minus_di[i]` sont non valides.
+
+Étape 5 — DX:
+
+- Pour chaque index `i`:
+  - Si `plus_di[i]` et `minus_di[i]` sont valides:
+    - `di_sum = plus_di[i] + minus_di[i]`
+    - Si `di_sum != 0`:
+      - `dx[i] = abs(plus_di[i] - minus_di[i]) / di_sum * 100`
+    - Sinon:
+      - `dx[i] = 0.0`
+  - Sinon:
+    - `dx[i]` est non valide.
+
+Étape 6 — ADX:
+
+- `adx = RMA_TV(dx, adx_period)`
+
+Sortie:
+
+- La fonction retourne `(adx, plus_di, minus_di)`.
+
 ## 🎯 Formule Officielle TradingView
 
 ### Composants du DMI
@@ -21,38 +96,33 @@ Le DMI (Directional Movement Index) se compose de **trois indicateurs** :
 ### Formules Mathématiques Complètes
 
 #### 1. Directional Movement (+DM / -DM)
-```
-UpMove = Current High - Previous High
-DownMove = Previous Low - Current Low
-
-+DM = UpMove if UpMove > DownMove and UpMove > 0, else 0
--DM = DownMove if DownMove > UpMove and DownMove > 0, else 0
-```
+- `UpMove[i] = High[i] - High[i-1]`
+- `DownMove[i] = Low[i-1] - Low[i]`
+- `+DM[i] = UpMove[i]` si `UpMove[i] > DownMove[i]` et `UpMove[i] > 0`, sinon `0.0`
+- `-DM[i] = DownMove[i]` si `DownMove[i] > UpMove[i]` et `DownMove[i] > 0`, sinon `0.0`
 
 #### 2. True Range (TR)
-```
-TR = MAX(
-    Current High - Current Low,
-    ABS(Current High - Previous Close),
-    ABS(Current Low - Previous Close)
-)
-```
+- `TR[0] = High[0] - Low[0]`
+- Pour `i >= 1`:
+  - `TR[i] = max(High[i] - Low[i], abs(High[i] - Close[i-1]), abs(Low[i] - Close[i-1]))`
 
 #### 3. Directional Indicators (+DI / -DI)
-```
-+DI = 100 × EMA(+DM / TR, period)
--DI = 100 × EMA(-DM / TR, period)
-```
+TradingView utilise le lissage de Wilder, ce repo l’implémente via `RMA_TV` (voir `docs/indicateurs/rma_tradingview_research.md`).
+
+- `TR_smooth = RMA_TV(TR, period)`
+- `+DM_smooth = RMA_TV(+DM, period)`
+- `-DM_smooth = RMA_TV(-DM, period)`
+- Pour chaque index `i`, si `TR_smooth[i]` est valide et `TR_smooth[i] != 0`:
+  - `+DI[i] = 100 × (+DM_smooth[i] / TR_smooth[i])`
+  - `-DI[i] = 100 × (-DM_smooth[i] / TR_smooth[i])`
 
 #### 4. Directional Index (DX)
-```
-DX = 100 × |+DI - -DI| / (+DI + -DI)
-```
+- Si `+DI[i]` et `-DI[i]` sont valides:
+  - `DX[i] = 100 × abs(+DI[i] - -DI[i]) / (+DI[i] + -DI[i])`
+  - si `(+DI[i] + -DI[i]) == 0`, alors `DX[i] = 0.0`
 
 #### 5. Average Directional Index (ADX)
-```
-ADX = EMA(DX, period)
-```
+- `ADX = RMA_TV(DX, adx_period)` avec `adx_period = adx_smoothing` si fourni, sinon `period`.
 
 ---
 
@@ -72,9 +142,7 @@ Le TR prend toujours le maximum des trois valeurs :
 
 ### Étape 3 - Lissage avec Wilder's Smoothing
 TradingView utilise **Wilder's Smoothing** (variante de l'EMA) :
-```
-Wilder_Smoothing = (Previous_Value × (period - 1) + Current_Value) / period
-```
+`RMA(value, period)` (Wilder) suit la spécification normative de `docs/indicateurs/rma_tradingview_research.md`.
 
 ### Étape 4 - Calcul Final
 - Normaliser +DM et -DM par le TR
@@ -83,168 +151,50 @@ Wilder_Smoothing = (Previous_Value × (period - 1) + Current_Value) / period
 
 ---
 
-## 📝 Implémentations Pine Script
-
-### 1. Version Standard TradingView
-```pine
-//@version=5
-indicator("DMI Indicator", overlay=false)
-
-len = input.int(14, title="ADX Length")
-lenDI = input.int(14, title="DI Length")
-
-// Calculs DMI
-[diPlus, diMinus, adx] = ta.dmi(lenDI, len)
-
-plot(diPlus, title="+DI", color=color.green)
-plot(diMinus, title="-DI", color=color.red)
-plot(adx, title="ADX", color=color.blue, linewidth=2)
-
-hline(25, "ADX Trend Threshold", color=color.gray, linestyle=hline.style_dashed)
-```
-
-### 2. Implémentation Manuelle Complète
-```pine
-//@version=5
-indicator("Manual DMI", overlay=false)
-
-len = input.int(14, title="Length")
-src = input(close, title="Source")
-
-// True Range
-tr = ta.tr(true)
-
-// Directional Movement
-upMove = high - high[1]
-downMove = low[1] - low
-plusDM = upMove > downMove and upMove > 0 ? upMove : 0
-minusDM = downMove > upMove and downMove > 0 ? downMove : 0
-
-// Wilder's Smoothing
-atr = ta.rma(tr, len)
-plusDI = 100 * ta.rma(plusDM / atr, len)
-minusDI = 100 * ta.rma(minusDM / atr, len)
-
-// ADX Calculation
-dx = 100 * math.abs(plusDI - minusDI) / (plusDI + minusDI)
-adx = ta.rma(dx, len)
-
-plot(plusDI, "+DI", color.green)
-plot(minusDI, "-DI", color.red)
-plot(adx, "ADX", color.blue, linewidth=2)
-```
-
-### 3. DMI avec Signaux de Trading
-```pine
-//@version=5
-indicator("DMI Trading Signals", overlay=false)
-
-len = input.int(14, title="Length")
-adxThreshold = input.int(25, title="ADX Threshold")
-
-[diPlus, diMinus, adx] = ta.dmi(len, len)
-
-// Signaux de croisement
-bullishCross = ta.crossover(diPlus, diMinus) and adx > adxThreshold
-bearishCross = ta.crossunder(diPlus, diMinus) and adx > adxThreshold
-
-// Affichage
-plot(diPlus, "+DI", color.green)
-plot(diMinus, "-DI", color.red)
-plot(adx, "ADX", color.blue, linewidth=2)
-
-plotshape(bullishCross, title="Buy Signal", location=location.bottom, 
-          style=shape.labelup, color=color.green, text="BUY")
-plotshape(bearishCross, title="Sell Signal", location=location.top, 
-          style=shape.labeldown, color=color.red, text="SELL")
-```
-
----
-
 ## ⚡ Astuces et Optimisations
 
 ### 1. Paramètres Optimisés par Style de Trading
-```pine
-// Day Trading (plus sensible)
-dayTradingDMI = ta.dmi(7, 7)
-
-// Swing Trading (standard)
-swingTradingDMI = ta.dmi(14, 14)
-
-// Position Trading (plus stable)
-positionTradingDMI = ta.dmi(21, 21)
-```
+ - Le choix des périodes contrôle le compromis “réactivité vs stabilité”.
+ - Exemples usuels (indicatifs):
+   - Day trading: périodes plus courtes (ex: 7)
+   - Swing trading: périodes standard (ex: 14)
+   - Position trading: périodes plus longues (ex: 21)
 
 ### 2. Filtres de Trend Strength
-```pine
-// Filtres ADX personnalisés
-strongTrend = adx > 25    // Trend fort
-weakTrend = adx < 20      // Trend faible
-noTrend = adx < 15        // Pas de trend
-
-// Combinaison avec RSI
-rsiFilter = ta.rsi(close, 14)
-validSignal = strongTrend and rsiFilter > 40 and rsiFilter < 60
-```
+ - Un usage courant consiste à filtrer les signaux DI par la force de tendance ADX.
+ - Exemples usuels (indicatifs):
+   - Trend fort: `ADX > 25`
+   - Trend faible: `ADX < 20`
+   - Absence de trend: `ADX < 15`
+ - Ce type de filtre peut être combiné à d’autres critères (ex: oscillateurs) selon la stratégie.
 
 ### 3. Amélioration de la Précision
-```pine
-// Utiliser HLC3 pour plus de stabilité
-hlc3 = (high + low + close) / 3
-[diPlus, diMinus, adx] = ta.dmi(14, 14)
-
-// Lissage additionnel pour réduire le bruit
-smoothedADX = ta.sma(adx, 3)
-smoothedPlusDI = ta.sma(diPlus, 2)
-smoothedMinusDI = ta.sma(diMinus, 2)
-```
+ - Selon les implémentations/plateformes, l’utilisation d’une source “typical” (ex: `HLC3`) peut stabiliser certains calculs.
+ - Un lissage additionnel (ex: moyenne simple sur quelques périodes) peut réduire le bruit des séries `ADX`, `+DI`, `-DI`.
 
 ### 4. Multi-Timeframe DMI
-```pine
-// DMI daily sur chart intraday
-dailyDMI = request.security(syminfo.tickerid, "1D", ta.dmi(14, 14))
-dailyADX = dailyDMI[2]
-
-plot(dailyADX, "Daily ADX", color=color.orange, linewidth=2)
-```
+ - Variante classique: calculer `ADX/+DI/-DI` sur un timeframe supérieur, puis les “reporter” sur un timeframe inférieur.
+ - En pratique, cela revient à recalculer l’indicateur sur la série agrégée du timeframe supérieur et à aligner temporellement les résultats.
 
 ---
 
 ## 📊 Cas d'Usage Avancés
 
 ### 1. DMI avec Zones Dynamiques
-```pine
-// Zones ADX adaptatives à la volatilité
-volatility = ta.atr(14) / close * 100
-dynamicThreshold = volatility > 2 ? 30 : 25
-
-plot(dynamicThreshold, "Dynamic ADX Threshold", color=color.yellow)
-```
+ - Variante: adapter le seuil ADX (ex: 25) en fonction de la volatilité du marché (ex: via un indicateur de volatilité).
+ - L’idée est de relever le seuil quand la volatilité est élevée et de l’abaisser quand elle est faible.
 
 ### 2. Système de Trading Complet
-```pine
-// Système DMI + Trend + Volume
-[diPlus, diMinus, adx] = ta.dmi(14, 14)
-volumeMA = ta.sma(volume, 20)
-volumeConfirmation = volume > volumeMA * 1.2
-
-// Signaux complets
-buySignal = ta.crossover(diPlus, diMinus) and adx > 25 and volumeConfirmation
-sellSignal = ta.crossunder(diPlus, diMinus) and adx > 25 and volumeConfirmation
-```
+ - Un schéma fréquent combine:
+   - un signal directionnel via croisement `+DI/-DI`,
+   - un filtre de force via `ADX`,
+   - et une confirmation externe (ex: volume supérieur à une moyenne de volume).
 
 ### 3. Divergences DMI
-```pine
-// Détection divergences ADX
-pivotHigh = ta.pivothigh(adx, 5, 5)
-pivotLow = ta.pivotlow(adx, 5, 5)
-
-// Divergence baissière : prix plus haut mais ADX plus bas
-bearishDiv = high > high[5] and adx < adx[5] and pivotHigh
-
-// Divergence haussière : prix plus bas mais ADX plus bas
-bullishDiv = low < low[5] and adx < adx[5] and pivotLow
-```
+ - Des divergences peuvent être recherchées entre:
+   - le prix (ex: plus haut / plus bas),
+   - et la force de tendance (`ADX`).
+ - La définition exacte d’un pivot et d’une divergence dépend de la méthode choisie (fenêtres, validation, etc.).
 
 ---
 
@@ -306,55 +256,4 @@ bullishDiv = low < low[5] and adx < adx[5] and pivotLow
 
 ---
 
-## 📋 Implémentation Go Référence
-
-```go
-// Implémentation DMI compatible TradingView
-type DMI struct {
-    period   int
-    periodDI int
-}
-
-func NewDMI(period, periodDI int) *DMI {
-    return &DMI{
-        period:   period,
-        periodDI: periodDI,
-    }
-}
-
-func (dmi *DMI) Calculate(h, l, c []float64) (plusDI, minusDI, adx []float64) {
-    n := len(h)
-    plusDI = make([]float64, n)
-    minusDI = make([]float64, n)
-    adx = make([]float64, n)
-    
-    // Calcul True Range
-    tr := calculateTR(h, l, c)
-    
-    // Calcul Directional Movement
-    plusDM, minusDM := calculateDM(h, l)
-    
-    // Wilder's Smoothing
-    atr := calculateWilderSmoothing(tr, dmi.periodDI)
-    smoothedPlusDM := calculateWilderSmoothing(plusDM, dmi.periodDI)
-    smoothedMinusDM := calculateWilderSmoothing(minusDM, dmi.periodDI)
-    
-    // Calcul DI
-    for i := 0; i < n; i++ {
-        if atr[i] != 0 {
-            plusDI[i] = 100 * smoothedPlusDM[i] / atr[i]
-            minusDI[i] = 100 * smoothedMinusDM[i] / atr[i]
-        }
-    }
-    
-    // Calcul DX et ADX
-    dx := calculateDX(plusDI, minusDI)
-    adx = calculateWilderSmoothing(dx, dmi.period)
-    
-    return plusDI, minusDI, adx
-}
-```
-
----
-
-*Document créé le 03/11/2025 - Basé sur recherche TradingView et documentation officielle*
+ *Document créé le 03/11/2025 - Basé sur recherche TradingView et documentation officielle*

@@ -234,6 +234,10 @@ Format du fichier :
 
 - `{symbol}_{timeframe}_{start_date}_{end_date}.csv`
 
+En grid-search, le script tente de **réutiliser un cache existant** qui couvre la période demandée (ex: `*_2025-01-01_2025-12-31.csv`) afin d’éviter de re-télécharger les données.
+
+Note : en mode `--grid-year`, la période est **strictement** `YYYY-01-01..YYYY-12-31` par défaut (pas de warmup avant la date de début). Si tu veux réactiver un warmup avant le début, utilise `--grid-allow-warmup-before-start`.
+
 ### Paramètres CLI
 
 - `--grid-search` : active le grid-search.
@@ -244,6 +248,11 @@ Format du fichier :
 - `--grid-out-csv <path>` : export CSV contenant tous les résultats.
 - `--grid-year <YYYY>` : raccourci pour tester toute l’année (ex: `2025` = `2025-01-01..2025-12-31`).
 - `--grid-ensure-year-cache` : construit le cache `{symbol}_{tf}_{YYYY-01-01}_{YYYY-12-31}.csv` si absent.
+- `--grid-offline` : n’utilise que les CSV en cache (aucun appel Bybit). Si données manquantes, le TF est ignoré.
+- `--grid-allow-warmup-before-start` : autorise un warmup avant la date de début (sinon période strictement start..end).
+- `--grid-stop-buffers <list>` : liste de buffers stop à tester.
+  - Exemple en % : `2,5,10,15,20,25,30`
+  - Exemple en fraction : `0.02,0.05`
 
 ### Exemple (année 2025, tous TF, top 10)
 
@@ -255,6 +264,7 @@ Format du fichier :
   --grid-timeframes 5m,15m,1h,2h,6h,1d \
   --grid-max-combo-size 3 \
   --grid-top 10 \
+  --grid-stop-buffers 2,5,10,15,20,25,30 \
   --grid-ensure-year-cache \
   --grid-out-csv /tmp/zerem_grid_2025.csv
 ```

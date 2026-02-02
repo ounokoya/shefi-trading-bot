@@ -13,34 +13,35 @@ Le **Price Volume Trend (PVT)** est un indicateur cumulatif volume-prix. Il ress
 
 ---
 
-## 🧮 FORMULE EXACTE
+## FORMULE EXACTE
 
 Soit `PVT[i]`, `close[i]`, `volume[i]`.
 
-- Initialisation : `PVT[0] = 0`
+- Initialisation (implémentation de ce repo):
+  - `PVT[0] = 0.0` si `close[0]` est valide.
+  - sinon `PVT[0]` est non valide.
 - Pour `i >= 1` :
 
-```text
-PVT[i] = PVT[i-1] + volume[i] * (close[i] - close[i-1]) / close[i-1]
-```
+  - Si `PVT[i-1]`, `close[i]`, `close[i-1]` ou `volume[i]` est non valide:
+    - `PVT[i]` est non valide.
+  - Sinon si `close[i-1] == 0`:
+    - `PVT[i]` est non valide.
+  - Sinon:
+    - `PVT[i] = PVT[i-1] + volume[i] × (close[i] - close[i-1]) / close[i-1]`.
 
 ---
 
-## 🔧 IMPLÉMENTATION PYTHON CONFORME TV
+## IMPLÉMENTATION PYTHON CONFORME TV
 
 - **Fichier** : `libs/indicators/volume/pvt_tv.py`
-- **Signature** :
-
-```python
-from libs.indicators.volume.pvt_tv import pvt_tv
-
-pvt = pvt_tv(close, volume)
-```
+- **Sortie** : une série `pvt[i]` de longueur `n`.
 
 ### Cas limites gérés
 
 - Si `close[i-1] == 0` : retour `NaN` (division par zéro)
-- Propagation `NaN/Inf` si une valeur requise est invalide
+- Propagation `NaN/Inf` si une valeur requise est invalide, incluant:
+  - `close[i]`, `close[i-1]`, `volume[i]`,
+  - et `PVT[i-1]` (si l’état précédent est non valide, `PVT[i]` devient non valide).
 
 ---
 

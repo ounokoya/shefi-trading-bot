@@ -13,9 +13,8 @@
 ## 🎯 Formule Officielle TradingView
 
 ### Formule Mathématique Complète
-```
+
 CCI = (Typical Price - SMA of TP) / (0.015 × Mean Deviation)
-```
 
 ### Composants Détaillés
 1. **Typical Price (TP)** = (High + Low + Close) / 3
@@ -42,37 +41,47 @@ Après tests pratiques sur 300 klines BingX :
 
 ---
 
-## 📝 Implémentations Pine Script
+## 🧩 Spécification d’implémentation (reproductible, sans ambiguïté)
 
-### 1. Version Standard TradingView
-```pine
-//@version=5
-indicator("My CCI Indicator", overlay=false)
+Cette section décrit la logique utilisée par l’implémentation de référence du repo (`libs/indicators/momentum/cci_tv.py`) et ses dépendances (`sma_tv`).
 
-length = input.int(20, title="CCI Length", minval=1)
-cciValue = ta.cci(hlc3, length)  // hlc3 = (high+low+close)/3
+Entrées:
 
-plot(cciValue, title="CCI", color=color.blue, linewidth=2)
-hline(100, "Overbought (+100)", color.red, linestyle=hline.style_dashed)
-hline(-100, "Oversold (-100)", color.green, linestyle=hline.style_dashed)
-hline(0, "Zero Line", color.gray, linestyle=hline.style_dotted)
-```
+- Séries de même longueur `n`: `high[i]`, `low[i]`, `close[i]`.
+- Paramètre: `period` (entier `> 0`).
 
-### 2. Implémentation Personnalisée
-```pine
-source = hlc3  // (high + low + close) / 3
-sma = ta.sma(source, length)
-mean_dev = ta.dev(source, length)  // Mean Deviation
-cci = (source - sma) / (0.015 * mean_dev)
-```
+Règles de validité:
 
-### Syntaxe ta.cci()
-```
-ta.cci(source, length) → series float
-```
-- **source** : série de valeurs (généralement hlc3)
-- **length** : période de calcul (défaut 20)
-- **Retour** : série float des valeurs CCI
+- Une valeur est dite “non valide” si elle est `NaN` ou `Inf`.
+- Si `high`, `low`, `close` n’ont pas la même longueur, le calcul est invalide.
+
+Définitions:
+
+- Typical price:
+  - `tp[i] = (high[i] + low[i] + close[i]) / 3`.
+
+- SMA TradingView (`sma_tv` sur `tp`, période `period`):
+  - `sma[i]` n’est défini que si les `period` dernières valeurs de `tp` (de `i-period+1` à `i`) sont toutes valides.
+  - Sinon `sma[i]` est non valide.
+  - À la première indexation possible (`i == period-1`), `sma[period-1]` vaut la moyenne des `period` premières valeurs valides.
+
+- Mean deviation:
+  - Pour `i < period-1`, `mean_dev[i]` est non valide.
+  - Pour `i >= period-1`:
+    - `mean_dev[i] = (1/period) × Σ_{j=i-period+1..i} abs(tp[j] - sma[i])`.
+    - Si `sma[i]` est non valide, alors `mean_dev[i]` devient non valide.
+
+Sortie CCI:
+
+- Constante: `constant = 0.015`.
+- Pour `i < period-1`, `cci[i]` est non valide.
+- Pour `i >= period-1`:
+  - Si `mean_dev[i]` est non valide, ou si `sma[i]` est non valide:
+    - `cci[i]` est non valide.
+  - Sinon si `mean_dev[i] == 0`:
+    - `cci[i] = 0.0`.
+  - Sinon:
+    - `cci[i] = (tp[i] - sma[i]) / (constant × mean_dev[i])`.
 
 ---
 
@@ -123,11 +132,10 @@ ta.cci(source, length) → series float
 - Implémentation Go doit vérifier les NaN
 
 ### Constantes de Scaling Alternatives
-```
-0.010 : Plus de valeurs extrêmes (> ±100)
-0.015 : Standard (70-80% entre ±100)
-0.020 : Moins de valeurs extrêmes
-```
+
+- 0.010 : Plus de valeurs extrêmes (> ±100)
+- 0.015 : Standard (70-80% entre ±100)
+- 0.020 : Moins de valeurs extrêmes
 
 ### Périodes Optimisées par Style
 - **Day Trading** : 10-14 périodes
@@ -177,15 +185,6 @@ ta.cci(source, length) → series float
 - TP = (High + Low + Close) / 3
 - **SMA_TP** = Simple Moving Average du TP sur période 20 (confirmé par tests)
 - Mean Deviation = Moyenne des |TP - SMA_TP| sur période 20
-
-```go
-func calculateCCITradingViewStandard(h, l, c []float64, period int) []float64 {
-    tp := (h[i] + l[i] + c[i]) / 3.0  // hlc3
-    sma := calculateSMA(tp, period)
-    meanDev := calculateMeanDeviation(tp, sma, period)
-    return (tp - sma) / (0.015 * meanDev)
-}
-```
 
 ### 2. Plus Robuste
 **TV_Custom** - Gestion des cas limites

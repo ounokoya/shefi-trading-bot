@@ -5,6 +5,81 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+
+def _tf_to_minutes(timeframe: str) -> int:
+    tf = str(timeframe or "").strip().lower()
+    if not tf:
+        return 0
+    if tf.endswith("min") and tf[:-3].isdigit():
+        return int(tf[:-3])
+    unit = tf[-1:]
+    if unit not in {"m", "h", "d", "w"}:
+        if tf.isdigit():
+            return int(tf)
+        return 0
+    n_raw = tf[:-1]
+    if not n_raw.isdigit():
+        return 0
+    n = int(n_raw)
+    if unit == "m":
+        return int(n)
+    if unit == "h":
+        return int(n) * 60
+    if unit == "d":
+        return int(n) * 60 * 24
+    if unit == "w":
+        return int(n) * 60 * 24 * 7
+    return 0
+
+
+def _count_missing_klines_from_ts(ts: pd.Series, *, interval_ms: int) -> int:
+    if interval_ms <= 0:
+        return 0
+    if ts is None:
+        return 0
+    s = pd.to_numeric(ts, errors="coerce").dropna().astype(int)
+    if s.empty:
+        return 0
+    s = s.drop_duplicates().sort_values()
+    diffs = s.diff().dropna().astype(int)
+    missing = 0
+    for d in diffs.tolist():
+        if int(d) <= int(interval_ms):
+            continue
+        missing += max(0, (int(d) // int(interval_ms)) - 1)
+    return int(missing)
+
+
+def _cache_range_is_complete(
+    df: pd.DataFrame,
+    *,
+    timeframe: str,
+    start_ms: int,
+    end_ms: int,
+    max_missing: int,
+) -> bool:
+    if df is None or df.empty or "ts" not in df.columns:
+        return False
+    minutes = _tf_to_minutes(timeframe)
+    if int(minutes) <= 0:
+        return True
+    interval_ms = int(minutes) * 60 * 1000
+
+    ts_all = pd.to_numeric(df["ts"], errors="coerce").dropna().astype(int)
+    if ts_all.empty:
+        return False
+    ts_all = ts_all.drop_duplicates().sort_values()
+
+    ts = ts_all[(ts_all >= int(start_ms)) & (ts_all <= int(end_ms))]
+    if ts.empty:
+        return False
+
+    expected = int(((int(end_ms) - int(start_ms)) // int(interval_ms)) + 1) if int(end_ms) >= int(start_ms) else 0
+    missing_by_count = max(0, int(expected) - int(len(ts))) if int(expected) > 0 else 0
+    missing_by_gaps = _count_missing_klines_from_ts(ts, interval_ms=int(interval_ms))
+    missing_total = max(int(missing_by_count), int(missing_by_gaps))
+    return int(missing_total) <= int(max_missing)
+
 def _interval_to_bybit(interval: str) -> str:
     # Simplified mapping
     it = str(interval or "").strip().lower()
@@ -143,7 +218,9 @@ def get_crypto_data(
     start_date: str,
     end_date: str,
     timeframe: str,
-    project_root: Path
+    project_root: Path,
+    cache_max_missing: int = 5,
+    cache_validate: bool = True,
 ) -> pd.DataFrame:
     """
     Get crypto data from cache or fetch from Bybit.
@@ -169,7 +246,30 @@ def get_crypto_data(
             df['open_time'] = df['open_time'].astype(int)
         if not df.empty and 'ts' in df.columns:
             df = df.sort_values('ts').reset_index(drop=True)
-        return df
+
+        if bool(cache_validate):
+            start_ms = int(pd.Timestamp(start_date, tz="UTC").timestamp() * 1000)
+            end_ms = int(pd.Timestamp(end_date, tz="UTC").timestamp() * 1000)
+            ok = _cache_range_is_complete(
+                df,
+                timeframe=str(timeframe),
+                start_ms=int(start_ms),
+                end_ms=int(end_ms),
+                max_missing=int(cache_max_missing),
+            )
+            if not bool(ok):
+                logging.warning(
+                    f"Cache incomplete: deleting {cache_path} then refetching (tf={timeframe} range={start_date}..{end_date} max_missing={cache_max_missing})"
+                )
+                try:
+                    cache_path.unlink(missing_ok=True)
+                except Exception as e:
+                    logging.warning(f"Failed to delete cache file {cache_path}: {e}")
+                df = pd.DataFrame()
+            else:
+                return df
+        else:
+            return df
         
     # 2. Fetch if not cached
     logging.info(f"Cache miss. Fetching from Bybit: {symbol} {timeframe}")
